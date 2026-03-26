@@ -187,10 +187,11 @@ class WorldLawsPanel:
                       self.x + 20, content_y + 13, self.w - 25)
 
             # Estado activo/violado
-            status = "✓" if law.active else "✗"
             status_color = UITheme.TEXT_GOOD if law.active else UITheme.TEXT_DANGER
-            draw_text(surface, status, fm.small, status_color,
-                      self.x + self.w - 15, content_y)
+            pygame.draw.circle(surface, status_color,
+                               (self.x + self.w - 10, content_y + 7),
+                               4 if law.active else 3,
+                               0 if law.active else 2)
 
             content_y += 34
 
@@ -207,59 +208,104 @@ class WorldLawsPanel:
 # ─── Panel de agentes ─────────────────────────────────────────────────────────
 
 class AgentsPanel:
-    """Lista de todos los agentes con su estado."""
+    """Lista de todos los agentes con su estado y skills."""
 
     def __init__(self, x, y, w):
         self.x, self.y, self.w = x, y, w
+        self.selected_id: Optional[int] = None
+        self.scroll_y = 0
 
     def draw(self, surface, agent_stats):
         fm = FontManager.get()
-        h = 28 + len(agent_stats) * 42
+        # Altura dinámica según si hay un agente seleccionado
+        selected = next((s for s in agent_stats
+                         if s.get("id") == self.selected_id), None)
+        detail_h = 120 if selected else 0
+        row_h = 38
+        h = 30 + len(agent_stats) * row_h + detail_h + 10
         content_y = draw_panel(surface, self.x, self.y, self.w, h,
-                                "◈  AGENTES IA")
+                                "AGENTES IA  (clic para ver skills)")
 
         for stat in agent_stats:
-            color = stat["color"]
-            is_autoia = stat["is_autoia"]
-            alive = stat["alive"]
+            color    = stat["color"]
+            is_auto  = stat["is_autoia"]
+            alive    = stat["alive"]
+            is_sel   = stat.get("id") == self.selected_id
 
-            # Fondo especial para Autoia
-            if is_autoia:
-                highlight = pygame.Surface((self.w - 6, 38), pygame.SRCALPHA)
-                highlight.fill((80, 40, 120, 60))
-                surface.blit(highlight, (self.x + 3, content_y))
-
-            # Indicador de color del agente
-            if alive:
-                pygame.draw.circle(surface, color, (self.x+12, content_y+12), 7)
+            # Fondo de selección
+            row_surf = pygame.Surface((self.w - 6, row_h - 2), pygame.SRCALPHA)
+            if is_sel:
+                row_surf.fill((60, 80, 140, 120))
+            elif is_auto:
+                row_surf.fill((80, 40, 120, 60))
             else:
-                pygame.draw.circle(surface, (60, 60, 60), (self.x+12, content_y+12), 7)
-                pygame.draw.circle(surface, (100, 100, 100), (self.x+12, content_y+12), 7, 1)
+                row_surf.fill((0, 0, 0, 0))
+            surface.blit(row_surf, (self.x + 3, content_y))
 
-            # Nombre y estado
-            name_color = UITheme.ACCENT2 if is_autoia else UITheme.TEXT_MAIN
-            name = f"{'★ ' if is_autoia else ''}{stat['name']} #{stat['id']}"
-            draw_text(surface, name, fm.small, name_color, self.x+24, content_y)
+            # Circulo de color
+            c_color = color if alive else (60, 60, 60)
+            pygame.draw.circle(surface, c_color, (self.x+13, content_y+10), 7)
+            if is_sel:
+                pygame.draw.circle(surface, (255, 255, 255),
+                                   (self.x+13, content_y+10), 8, 1)
 
-            state_text = "MUERTO" if not alive else stat["state"]
+            # Nombre
+            prefix = "* " if is_auto else ""
+            name_color = (200, 150, 255) if is_auto else UITheme.TEXT_MAIN
+            draw_text(surface, f"{prefix}{stat['name']} #{stat['id']}",
+                      fm.small, name_color, self.x+26, content_y)
+
+            # Estado + experiencia
+            xp = stat.get("experience", 0.0)
+            state = "MUERTO" if not alive else stat["state"][:14]
             state_color = UITheme.TEXT_DANGER if not alive else UITheme.TEXT_DIM
-            draw_text(surface, state_text, fm.tiny, state_color,
-                      self.x+24, content_y+14)
+            draw_text(surface, f"{state}  XP:{xp:.1f}",
+                      fm.tiny, state_color, self.x+26, content_y+13)
 
-            # Barra de energía
+            # Barra de energia
             if alive:
-                energy = stat["energy"]
-                draw_bar(surface, self.x+24, content_y+26, self.w-32, 6,
-                         energy, get_energy_color(energy),
+                draw_bar(surface, self.x+26, content_y+24, self.w-34, 5,
+                         stat["energy"], get_energy_color(stat["energy"]),
                          border_color=UITheme.BORDER)
 
-            # Pensamiento activo
-            if stat["thought"]:
-                thought_short = stat["thought"][:28] + ("…" if len(stat["thought"]) > 28 else "")
-                draw_text(surface, f'"{thought_short}"', fm.tiny,
-                          (180, 150, 255), self.x+24, content_y+26)
+            content_y += row_h
 
-            content_y += 42
+            # ── Detalle expandido del agente seleccionado ──────────────────
+            if is_sel and alive:
+                pygame.draw.rect(surface, (20, 25, 50),
+                                 (self.x+4, content_y, self.w-8, detail_h),
+                                 border_radius=4)
+                pygame.draw.rect(surface, (60, 80, 140),
+                                 (self.x+4, content_y, self.w-8, detail_h), 1,
+                                 border_radius=4)
+                dy = content_y + 5
+                draw_text(surface, "HABILIDADES APRENDIDAS:", fm.tiny,
+                          UITheme.ACCENT, self.x+10, dy)
+                dy += 14
+                skills = stat.get("skills", {})
+                if skills:
+                    # Top 5 skills ordenadas por peso
+                    top = sorted(skills.items(), key=lambda x: -x[1])[:5]
+                    for skill_name, weight in top:
+                        bar_color = lerp_color((80, 80, 200), (80, 220, 120),
+                                               min(1.0, (weight-0.1)/2.9))
+                        draw_text(surface, f"{skill_name[:12]:12s}",
+                                  fm.tiny, UITheme.TEXT_DIM, self.x+10, dy)
+                        draw_bar(surface, self.x+110, dy+1, self.w-120, 8,
+                                 min(1.0, weight/3.0), bar_color)
+                        draw_text(surface, f"{weight:.2f}", fm.tiny,
+                                  UITheme.TEXT_MAIN, self.x+self.w-35, dy)
+                        dy += 14
+                else:
+                    draw_text(surface, "Sin habilidades aun", fm.tiny,
+                              UITheme.TEXT_DIM, self.x+10, dy)
+                    dy += 14
+                # Pensamiento actual
+                thought = stat.get("thought", "")
+                if thought:
+                    draw_text(surface, f'"{thought[:self.w//8]}"', fm.tiny,
+                              (180, 150, 255), self.x+10, dy)
+                content_y += detail_h + 4
 
 
 # ─── Panel de Autoia (pensamiento y stats) ────────────────────────────────────

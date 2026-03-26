@@ -166,7 +166,7 @@ class WorldApp:
         self.terrain_surf = surf.convert()
 
     def run(self):
-        """Loop principal con world step en hilo separado."""
+        """Loop principal."""
         while self.running:
             dt = self.clock.tick(TARGET_FPS) / 1000.0
             dt = min(dt, 0.05)
@@ -175,34 +175,17 @@ class WorldApp:
             self._handle_keys(dt)
 
             if not self.paused:
-                # Step del mundo en thread separado (aprovecha CPU)
-                if self._step_thread is None or not self._step_thread.is_alive():
-                    step_dt = dt * self.sim_speed
-                    self._step_thread = threading.Thread(
-                        target=self._world_step, args=(step_dt,), daemon=True
-                    )
-                    self._step_thread.start()
+                try:
+                    self.world.step(dt * self.sim_speed)
+                except Exception as e:
+                    logger.debug(f"Error en world step: {e}")
 
             self.camera.update(dt)
-
-            # Renderizar sin esperar al step (puede haber un frame de lag, pero es fluido)
             self._render()
             self._render_ollama_overlay()
             pygame.display.flip()
 
-            # Sincronizar si el step del mundo no terminó
-            if self._step_thread and self._step_thread.is_alive():
-                self._step_thread.join(timeout=0.008)
-
         pygame.quit()
-
-    def _world_step(self, dt: float):
-        """Step del mundo en hilo separado."""
-        with self._step_lock:
-            try:
-                self.world.step(dt)
-            except Exception as e:
-                logger.debug(f"Error en world step: {e}")
 
     # ─── Input ────────────────────────────────────────────────────────────────
 
@@ -380,18 +363,48 @@ class WorldApp:
             self.camera.scroll(dx * self.camera.zoom, dy * self.camera.zoom)
 
     def _handle_click(self, pos):
-        """Click en un agente lo selecciona."""
         mx, my = pos
+
+        # ── Click en pestañas del panel derecho ──────────────────────────
+        if my <= 36 and mx >= VIEWPORT_W:
+            tab_w = PANEL_RIGHT_W // len(self.panel_tabs)
+            tab_idx = (mx - VIEWPORT_W) // tab_w
+            if 0 <= tab_idx < len(self.panel_tabs):
+                self.right_panel_mode = self.panel_tabs[tab_idx]
+                # Activar input si es el chat
+                if self.panel_tabs[tab_idx] == "chat":
+                    self.chat_input_active = True
+                    self.chat_panel.input_active = True
+                    pygame.key.start_text_input()
+                else:
+                    self.chat_input_active = False
+                    self.chat_panel.input_active = False
+                    pygame.key.stop_text_input()
+            return
+
+        # ── Click en el área del chat (input box) ─────────────────────────
+        if self.right_panel_mode == "chat" and mx >= VIEWPORT_W:
+            input_y = 38 + (SCREEN_H - 50) - 40
+            if my >= input_y:
+                self.chat_input_active = True
+                self.chat_panel.input_active = True
+                pygame.key.start_text_input()
+            return
+
+        # ── Click en agente del viewport ──────────────────────────────────
         if mx < VIEWPORT_W:
             wx, wy = self.camera.screen_to_world(mx, my)
             for agent in self.world.agents:
                 if agent.alive:
                     dx = agent.x - wx
                     dy = agent.y - wy
-                    if math.sqrt(dx*dx+dy*dy) < agent.radius + 5:
-                        logger.info(f"Seleccionado: {agent.AGENT_NAME} #{agent.agent_id}")
-                        if hasattr(agent, 'is_autoia'):
+                    if math.sqrt(dx*dx+dy*dy) < agent.radius + 8:
+                        # Seleccionar agente: cambiar al panel correspondiente
+                        if getattr(agent, 'is_autoia', False):
                             self.right_panel_mode = "autoia"
+                        else:
+                            self.right_panel_mode = "agents"
+                            self.agents_panel.selected_id = agent.agent_id
                         break
 
     # ─── Renderizado ──────────────────────────────────────────────────────────

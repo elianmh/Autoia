@@ -332,15 +332,18 @@ class WorldSimulation:
     def get_agent_stats(self) -> List[Dict]:
         stats = []
         for a in self.agents:
+            state = getattr(a, 'current_goal', None) or getattr(a, 'state', '')
             stats.append({
-                "id":      a.agent_id,
-                "name":    a.AGENT_NAME,
-                "alive":   a.alive,
-                "energy":  a.energy,
-                "state":   a.state,
-                "deaths":  a.death_count,
-                "color":   a.COLOR_BODY,
-                "thought": a.thought if a.is_thinking else "",
-                "is_autoia": getattr(a, 'is_autoia', False),
+                "id":         a.agent_id,
+                "name":       a.AGENT_NAME,
+                "alive":      a.alive,
+                "energy":     a.energy,
+                "state":      state,
+                "deaths":     a.death_count,
+                "color":      a.COLOR_BODY,
+                "thought":    a.thought if a.is_thinking else "",
+                "is_autoia":  getattr(a, 'is_autoia', False),
+                "skills":     dict(getattr(a, 'skills', {})),
+                "experience": round(getattr(a, 'experience', 0.0), 1),
             })
         return stats
