@@ -77,6 +77,12 @@ class BaseAgent:
         self._prev_x = x
         self._prev_y = y
 
+        # Sistema de aprendizaje por experiencia (habilidades)
+        self.skills: dict = {}          # accion -> peso (0.1 - 3.0)
+        self.experience    = 0.0        # experiencia total acumulada
+        self._action_log   = []         # [(accion, energia_antes)]
+        self._energy_prev  = 1.0        # para calcular delta
+
     # ─── Ciclo de vida ────────────────────────────────────────────────────────
 
     def update(self, dt: float, world_state: Dict, physics):
@@ -112,6 +118,49 @@ class BaseAgent:
     def behave(self, dt: float, world_state: Dict, physics):
         """Lógica de comportamiento. Sobreescribir en subclases."""
         self._wander(dt)
+
+    # ─── Sistema de aprendizaje por refuerzo simple ────────────────────────────
+
+    def start_action(self, action: str):
+        """Registra el inicio de una acción para aprender de su resultado."""
+        self._action_log.append((action, self.energy))
+
+    def learn_from_outcome(self, dt: float = 1.0):
+        """
+        Calcula el delta de energía desde la última acción y actualiza habilidades.
+        Llama esto periódicamente en behave().
+        """
+        energy_delta = self.energy - self._energy_prev
+        self._energy_prev = self.energy
+
+        if not self._action_log:
+            return
+
+        # Recompensar/penalizar las últimas acciones
+        for action, _ in self._action_log[-3:]:
+            prev = self.skills.get(action, 1.0)
+            if energy_delta > 0.01:
+                # Acción fue beneficiosa -> reforzar
+                new_weight = min(3.0, prev + 0.05 * energy_delta * 10)
+            elif energy_delta < -0.02:
+                # Acción fue perjudicial -> debilitar
+                new_weight = max(0.1, prev - 0.02)
+            else:
+                new_weight = prev  # neutral
+            self.skills[action] = new_weight
+
+        self._action_log.clear()
+        self.experience += abs(energy_delta) + dt * 0.001
+
+    def get_skill(self, action: str) -> float:
+        """Retorna el peso de habilidad para una acción (1.0 = neutro)."""
+        return self.skills.get(action, 1.0)
+
+    def get_best_action(self, actions: list) -> str:
+        """Retorna la acción con mayor habilidad aprendida."""
+        if not actions:
+            return ""
+        return max(actions, key=lambda a: self.skills.get(a, 1.0))
 
     def die(self):
         """El agente muere. Respawnea tras un delay."""

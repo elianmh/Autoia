@@ -41,6 +41,21 @@ def get_energy_color(ratio: float) -> Tuple[int,int,int]:
         return UITheme.ENERGY_LOW
 
 
+def _make_font(ui_names, mono_names, size, bold=False):
+    """Prueba fuentes en orden, retorna la primera disponible."""
+    for name in ui_names:
+        try:
+            f = pygame.font.SysFont(name, size, bold=bold)
+            if f:
+                return f
+        except Exception:
+            continue
+    return pygame.font.SysFont(None, size, bold=bold)
+
+_UI_FONTS   = ["Segoe UI", "Calibri", "Arial", "Tahoma", "Helvetica", "sans-serif"]
+_MONO_FONTS = ["Consolas", "Courier New", "Lucida Console", "monospace"]
+
+
 class FontManager:
     """Gestiona las fuentes del sistema."""
     _instance = None
@@ -53,22 +68,55 @@ class FontManager:
 
     def __init__(self):
         pygame.font.init()
-        self.small  = pygame.font.SysFont("monospace", 11)
-        self.normal = pygame.font.SysFont("monospace", 13)
-        self.medium = pygame.font.SysFont("monospace", 15, bold=True)
-        self.large  = pygame.font.SysFont("monospace", 18, bold=True)
-        self.title  = pygame.font.SysFont("monospace", 22, bold=True)
-        self.tiny   = pygame.font.SysFont("monospace", 9)
+        self.tiny   = _make_font(_UI_FONTS, _MONO_FONTS, 11)
+        self.small  = _make_font(_UI_FONTS, _MONO_FONTS, 13)
+        self.normal = _make_font(_UI_FONTS, _MONO_FONTS, 15)
+        self.medium = _make_font(_UI_FONTS, _MONO_FONTS, 16, bold=True)
+        self.large  = _make_font(_UI_FONTS, _MONO_FONTS, 20, bold=True)
+        self.title  = _make_font(_UI_FONTS, _MONO_FONTS, 24, bold=True)
+        self.chat   = _make_font(_UI_FONTS, _MONO_FONTS, 14)
+        self.mono   = _make_font(_MONO_FONTS, _MONO_FONTS, 12)
 
 
 def draw_text(surface, text, font, color, x, y, max_width=None):
-    """Dibuja texto con recorte opcional."""
+    """Dibuja texto con recorte opcional y antialiasing."""
+    if not text:
+        return 0
     if max_width:
         while font.size(text)[0] > max_width and len(text) > 4:
-            text = text[:-2] + "…"
-    surf = font.render(text, True, color)
+            text = text[:-2] + ".."
+    surf = font.render(str(text), True, color)
     surface.blit(surf, (x, y))
     return surf.get_height()
+
+
+def draw_text_shadow(surface, text, font, color, x, y, max_width=None):
+    """Dibuja texto con sombra para mejor legibilidad sobre fondos variables."""
+    if not text:
+        return 0
+    shadow = font.render(str(text), True, (0, 0, 0))
+    surface.blit(shadow, (x+1, y+1))
+    return draw_text(surface, text, font, color, x, y, max_width)
+
+
+def draw_text_wrapped(surface, text, font, color, x, y, max_width, line_spacing=2):
+    """Dibuja texto con wrapping automático. Retorna la Y final."""
+    words = str(text).split()
+    line = ""
+    cy = y
+    for word in words:
+        test = (line + " " + word).strip()
+        if font.size(test)[0] <= max_width:
+            line = test
+        else:
+            if line:
+                draw_text(surface, line, font, color, x, cy, max_width)
+                cy += font.get_height() + line_spacing
+            line = word
+    if line:
+        draw_text(surface, line, font, color, x, cy, max_width)
+        cy += font.get_height() + line_spacing
+    return cy
 
 
 def draw_bar(surface, x, y, w, h, ratio, color_full, color_bg=(30, 35, 50),
@@ -411,3 +459,196 @@ class EventsPanel:
             text = f"[{ev.event_type[:3].upper()}] {ev.description}"
             draw_text(surface, text, fm.tiny, color, self.x+8, content_y, self.w-16)
             content_y += 16
+
+
+# ─── Panel de Chat con el Usuario ─────────────────────────────────────────────
+
+class ChatPanel:
+    """
+    Panel de comunicacion bidireccional entre el usuario y Autoia.
+    Autoia puede mandar mensajes espontaneos cuando aprende algo o necesita algo.
+    El usuario puede escribir y Autoia responde via Ollama.
+    """
+
+    MSG_AUTOIA = "autoia"
+    MSG_USER   = "user"
+    MSG_SYSTEM = "system"
+
+    COLOR_AUTOIA = (200, 150, 255)
+    COLOR_USER   = (80, 220, 180)
+    COLOR_SYSTEM = (100, 140, 200)
+
+    def __init__(self, x, y, w, h):
+        self.x, self.y, self.w, self.h = x, y, w, h
+        self.messages: List[Dict] = []
+        self.input_text  = ""
+        self.input_active = False
+        self.scroll_offset = 0
+        self.max_messages  = 80
+        self._pending_response = False
+        self._new_msg_count    = 0
+
+        # Mensaje inicial de Autoia
+        self.add_message(self.MSG_AUTOIA,
+            "Hola. Soy Autoia. Estoy aprendiendo de este mundo. "
+            "Puedes escribirme aqui si quieres hablar.")
+
+    def add_message(self, sender: str, text: str):
+        self.messages.append({
+            "sender": sender,
+            "text":   text,
+            "time":   __import__("time").strftime("%H:%M"),
+        })
+        if len(self.messages) > self.max_messages:
+            self.messages.pop(0)
+        self._new_msg_count += 1
+        # Auto-scroll al final
+        self.scroll_offset = 0
+
+    def add_autoia_message(self, text: str):
+        self.add_message(self.MSG_AUTOIA, text)
+
+    def add_user_message(self, text: str):
+        self.add_message(self.MSG_USER, text)
+
+    def add_system_message(self, text: str):
+        self.add_message(self.MSG_SYSTEM, text)
+
+    def handle_char(self, char: str):
+        if len(self.input_text) < 200:
+            self.input_text += char
+
+    def handle_backspace(self):
+        self.input_text = self.input_text[:-1]
+
+    def get_input_and_clear(self) -> str:
+        text = self.input_text.strip()
+        self.input_text = ""
+        return text
+
+    def draw(self, surface, screen_w, screen_h):
+        fm = FontManager.get()
+        LINE_H  = 14
+        BUBBLE_PAD = 6
+        INPUT_H = 36
+        HEADER_H = 26
+
+        # Fondo del panel
+        draw_panel(surface, self.x, self.y, self.w, self.h, "")
+
+        # Header
+        header_surf = pygame.Surface((self.w, HEADER_H), pygame.SRCALPHA)
+        header_surf.fill((30, 20, 60, 230))
+        surface.blit(header_surf, (self.x, self.y))
+        pygame.draw.rect(surface, (120, 60, 200),
+                         (self.x, self.y, self.w, HEADER_H), 1, border_radius=4)
+        draw_text(surface, "CHAT CON AUTOIA", fm.medium,
+                  (200, 160, 255), self.x + 10, self.y + 5)
+        if self._new_msg_count > 0:
+            badge = f"+{self._new_msg_count}"
+            draw_text(surface, badge, fm.tiny, (255, 120, 80),
+                      self.x + self.w - 30, self.y + 8)
+
+        # Area de mensajes
+        msg_area_y = self.y + HEADER_H + 4
+        msg_area_h = self.h - HEADER_H - INPUT_H - 12
+
+        # Clip al area de mensajes
+        clip = surface.get_clip()
+        surface.set_clip(pygame.Rect(self.x, msg_area_y, self.w, msg_area_h))
+
+        # Renderizar mensajes desde el fondo hacia arriba
+        visible = []
+        total_h = 0
+        for msg in reversed(self.messages):
+            text = msg["text"]
+            # Calcular alto de este mensaje (wrapped)
+            words = text.split()
+            lines = []
+            line = ""
+            for word in words:
+                test = (line + " " + word).strip()
+                if fm.chat.size(test)[0] <= self.w - 30:
+                    line = test
+                else:
+                    if line:
+                        lines.append(line)
+                    line = word
+            if line:
+                lines.append(line)
+            msg_h = len(lines) * (LINE_H + 1) + BUBBLE_PAD * 2 + 16
+            visible.insert(0, (msg, lines, msg_h))
+            total_h += msg_h + 4
+            if total_h > msg_area_h + self.scroll_offset * 20:
+                break
+
+        cy = msg_area_y + max(0, msg_area_h - total_h)
+        for msg, lines, msg_h in visible:
+            sender = msg["sender"]
+            t      = msg["time"]
+
+            if sender == self.MSG_AUTOIA:
+                bubble_color = (50, 25, 80, 200)
+                text_color   = self.COLOR_AUTOIA
+                label        = f"Autoia  {t}"
+                lx           = self.x + 6
+            elif sender == self.MSG_USER:
+                bubble_color = (20, 60, 50, 200)
+                text_color   = self.COLOR_USER
+                label        = f"Tu  {t}"
+                lx           = self.x + 20
+            else:
+                bubble_color = (20, 30, 60, 180)
+                text_color   = self.COLOR_SYSTEM
+                label        = f"Sistema  {t}"
+                lx           = self.x + 6
+
+            # Burbuja
+            bub = pygame.Surface((self.w - 12, msg_h), pygame.SRCALPHA)
+            bub.fill(bubble_color)
+            surface.blit(bub, (self.x + 6, cy))
+            pygame.draw.rect(surface, (*text_color[:3], 100),
+                             (self.x+6, cy, self.w-12, msg_h), 1, border_radius=4)
+
+            # Etiqueta
+            draw_text(surface, label, fm.tiny, (*text_color[:3],),
+                      lx + 4, cy + 3, self.w - 20)
+            ty = cy + 16
+            for ln in lines:
+                draw_text(surface, ln, fm.chat, (220, 215, 240), lx + 4, ty, self.w - 20)
+                ty += LINE_H + 1
+
+            cy += msg_h + 4
+
+        surface.set_clip(clip)
+
+        # Input box
+        input_y = self.y + self.h - INPUT_H - 4
+        pygame.draw.rect(surface, (0, 0, 0, 0),
+                         (self.x + 4, input_y, self.w - 8, INPUT_H))
+        border_col = (120, 80, 200) if self.input_active else (50, 60, 100)
+        pygame.draw.rect(surface, (20, 15, 40),
+                         (self.x + 4, input_y, self.w - 8, INPUT_H), border_radius=5)
+        pygame.draw.rect(surface, border_col,
+                         (self.x + 4, input_y, self.w - 8, INPUT_H), 1, border_radius=5)
+
+        display_text = self.input_text
+        if self._pending_response:
+            display_text = "Autoia esta pensando..."
+            draw_text(surface, display_text, fm.chat, (150, 120, 200),
+                      self.x + 10, input_y + 10, self.w - 20)
+        elif self.input_active:
+            cursor = "_" if int(__import__("time").time() * 2) % 2 == 0 else ""
+            draw_text(surface, display_text + cursor, fm.chat, (220, 215, 240),
+                      self.x + 10, input_y + 10, self.w - 20)
+        else:
+            hint = display_text if display_text else "Presiona T para hablar con Autoia"
+            draw_text(surface, hint, fm.chat,
+                      (220, 215, 240) if display_text else (80, 90, 130),
+                      self.x + 10, input_y + 10, self.w - 20)
+
+        if self._pending_response:
+            # Indicador animado
+            dots = "." * (int(__import__("time").time() * 3) % 4)
+            draw_text(surface, f"respondiendo{dots}", fm.tiny, (140, 100, 200),
+                      self.x + self.w - 100, input_y + 24)

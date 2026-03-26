@@ -280,13 +280,30 @@ class AutoiaWorldAgent(BaseAgent):
 
     # ─── Aprendizaje ──────────────────────────────────────────────────────────
 
+    # Cola de mensajes para el usuario (el chat los consume)
+    _user_message_queue: list = []
+
     def _on_learned(self, question: str, answer: str):
         """Callback cuando el motor de curiosidad aprende algo nuevo."""
         self.knowledge_level += 0.5
-        entry = f"Aprendí: {question[:50]} -> {answer[:80]}"
+        entry = f"Aprendi: {question[:50]} -> {answer[:80]}"
         self.observations.append(entry)
         self.remember(entry[:60], importance=0.9)
         self.total_obs_chars += len(answer)
+
+        # Cada ~5 aprendizajes, mandar mensaje espontaneo al usuario
+        ce = self.curiosity_engine
+        if ce and ce.total_cycles > 0 and ce.total_cycles % 5 == 0:
+            short_q = question[:60].rstrip("?") if question else "algo"
+            msg = f"Acabo de entender algo sobre '{short_q}'. Fascinante."
+            AutoiaWorldAgent._user_message_queue.append(msg)
+
+    @classmethod
+    def pop_user_message(cls) -> str:
+        """Retorna el siguiente mensaje para el usuario (si hay)."""
+        if cls._user_message_queue:
+            return cls._user_message_queue.pop(0)
+        return ""
 
     def add_observation(self, text: str):
         """Añade una observación al buffer de aprendizaje."""

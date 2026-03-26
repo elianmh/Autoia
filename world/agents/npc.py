@@ -30,8 +30,8 @@ class ExplorerAgent(BaseAgent):
         self.state = "mapping"
 
     def behave(self, dt, world_state, physics):
+        self.start_action("explore")
         vision = physics.get_vision_range(self)
-        visible = self.get_visible_agents(world_state.get("agents", []), vision)
 
         # Marcar zona visitada
         cx = int(self.x / self.exploration_grid_size)
@@ -41,18 +41,22 @@ class ExplorerAgent(BaseAgent):
         # Buscar energía si está baja
         if self.energy < 0.25:
             self.state = "seeking_energy"
+            self.start_action("seek_energy")
             resources = self.get_nearby_resources(world_state.get("resources", []), vision)
             energy_sources = [r for r in resources if r.energy_value > 0]
             if energy_sources:
                 closest = min(energy_sources, key=lambda r: (r.x-self.x)**2+(r.y-self.y)**2)
-                self.move_toward(closest.x, closest.y, speed=110)
-                self.set_thought("¡Busco energía!")
+                self.move_toward(closest.x, closest.y,
+                                 speed=110 * self.get_skill("seek_energy"))
+                self.set_thought("Busco energia!")
+                self.learn_from_outcome(dt)
                 return
 
         # Explorar zonas no visitadas
         self.state = "mapping"
         best_target = None
         best_score = -1
+        explore_range = 300 * self.get_skill("explore")
 
         for _ in range(20):
             tx = random.uniform(20, self.terrain_grid.pixel_w-20)
@@ -62,7 +66,7 @@ class ExplorerAgent(BaseAgent):
             if (gcx, gcy) not in self.visited_zones:
                 dx, dy = tx-self.x, ty-self.y
                 dist = math.sqrt(dx*dx+dy*dy)
-                if self.terrain_grid.is_walkable_at(tx, ty) and dist < 300:
+                if self.terrain_grid.is_walkable_at(tx, ty) and dist < explore_range:
                     score = 1.0 / (1 + dist/100)
                     if score > best_score:
                         best_score = score
@@ -74,9 +78,11 @@ class ExplorerAgent(BaseAgent):
         else:
             self._wander(dt)
 
-        # Pensamiento periódico
+        self.learn_from_outcome(dt)
+
         if random.random() < 0.005:
-            self.set_thought(f"He explorado {len(self.visited_zones)} zonas")
+            exp_rounded = round(self.experience, 1)
+            self.set_thought(f"Zonas: {len(self.visited_zones)} | XP:{exp_rounded}")
 
 
 class CollectorAgent(BaseAgent):

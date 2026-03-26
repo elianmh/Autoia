@@ -4,8 +4,10 @@ Renderiza el mundo, los agentes y la interfaz gráfica completa.
 """
 
 import sys
+import os
 import math
 import random
+import threading
 import pygame
 import pygame.gfxdraw
 import logging
@@ -16,22 +18,27 @@ from world.physics import TERRAIN_PROPS, TerrainType
 from world.renderer.camera import Camera
 from world.renderer.ui import (
     FontManager, UITheme, HUD, WorldLawsPanel,
-    AgentsPanel, AutoiaPanel, EventsPanel,
-    draw_thought_bubble, draw_text, draw_panel, lerp_color
+    AgentsPanel, AutoiaPanel, EventsPanel, ChatPanel,
+    draw_thought_bubble, draw_text, draw_text_shadow, draw_panel, lerp_color
 )
 
 logger = logging.getLogger("autoia.renderer")
 
+# Usar todos los CPUs disponibles para PyTorch si está disponible
+try:
+    import torch
+    torch.set_num_threads(max(1, os.cpu_count() or 4))
+except ImportError:
+    pass
 
 # ─── Constantes de pantalla ────────────────────────────────────────────────────
 
-SCREEN_W     = 1400
-SCREEN_H     = 820
-VIEWPORT_W   = 950        # Área del mundo
-VIEWPORT_H   = SCREEN_H
-PANEL_LEFT_W = 0          # Sin panel izquierdo
+SCREEN_W      = 1400
+SCREEN_H      = 860
+VIEWPORT_W    = 950
+VIEWPORT_H    = SCREEN_H
 PANEL_RIGHT_W = SCREEN_W - VIEWPORT_W
-TARGET_FPS   = 60
+TARGET_FPS    = 90
 
 
 class WorldApp:
@@ -42,23 +49,24 @@ class WorldApp:
 
     def __init__(self, world: WorldSimulation, autoia_agent=None):
         pygame.init()
-        pygame.display.set_caption("Autoia — Mundo de IAs con Leyes Físicas")
+        pygame.display.set_caption("Autoia - Mundo de IAs con Leyes Fisicas")
 
-        self.screen = pygame.display.set_mode(
-            (SCREEN_W, SCREEN_H), pygame.RESIZABLE
-        )
+        # Aceleracion por hardware + doble buffer para maxima fluidez
+        flags = pygame.HWSURFACE | pygame.DOUBLEBUF | pygame.RESIZABLE
+        self.screen = pygame.display.set_mode((SCREEN_W, SCREEN_H), flags)
+        pygame.display.set_allow_screensaver(True)
+
         self.clock      = pygame.time.Clock()
         self.running    = True
         self.paused     = False
-        self.sim_speed  = 1.0   # Multiplicador de velocidad
+        self.sim_speed  = 1.0
 
         self.world      = world
         self.autoia     = autoia_agent
         self.fonts      = FontManager.get()
 
-        # Cámara
-        self.camera = Camera(VIEWPORT_W, VIEWPORT_H,
-                             world.pixel_w, world.pixel_h)
+        # Camara
+        self.camera = Camera(VIEWPORT_W, VIEWPORT_H, world.pixel_w, world.pixel_h)
         if autoia_agent:
             self.camera.follow(autoia_agent)
         else:
@@ -67,65 +75,89 @@ class WorldApp:
 
         self.follow_autoia = (autoia_agent is not None)
 
-        # Superficie del viewport (área del mundo)
-        self.viewport_surf = pygame.Surface((VIEWPORT_W, VIEWPORT_H))
+        # Superficie del viewport (convertida para hardware = mas rapida)
+        self.viewport_surf = pygame.Surface((VIEWPORT_W, VIEWPORT_H)).convert()
 
-        # Superficie del terreno (precalculada, actualiza solo si cambia)
-        self.terrain_surf  = None
+        # Terreno precalculado
+        self.terrain_surf = None
         self._build_terrain_surface()
+
+        # Overlay de oscuridad (reutilizado cada frame, evita crear Surface nueva)
+        self._dark_surf = pygame.Surface((VIEWPORT_W, VIEWPORT_H)).convert()
+        self._dark_surf.fill((0, 5, 20))
+
+        # Superficie de trails (reutilizada, evita crear SRCALPHA por segmento)
+        self._trail_surf = pygame.Surface((VIEWPORT_W, VIEWPORT_H), pygame.SRCALPHA)
 
         # UI Components
         px = VIEWPORT_W + 8
-        self.hud            = HUD()
-        self.laws_panel     = WorldLawsPanel(px, 35, PANEL_RIGHT_W - 12)
-        self.autoia_panel   = AutoiaPanel(px, 35, PANEL_RIGHT_W - 12)
-        self.agents_panel   = AgentsPanel(px, 35, PANEL_RIGHT_W - 12)
-        self.events_panel   = EventsPanel(px, 35, PANEL_RIGHT_W - 12)
+        self.hud          = HUD()
+        self.laws_panel   = WorldLawsPanel(px, 38, PANEL_RIGHT_W - 14)
+        self.autoia_panel = AutoiaPanel(px, 38, PANEL_RIGHT_W - 14)
+        self.agents_panel = AgentsPanel(px, 38, PANEL_RIGHT_W - 14)
+        self.events_panel = EventsPanel(px, 38, PANEL_RIGHT_W - 14)
+        self.chat_panel   = ChatPanel(px, 38, PANEL_RIGHT_W - 14, SCREEN_H - 50)
 
-        # Estado de qué panel mostrar a la derecha
-        self.right_panel_mode = "autoia"  # "autoia", "agents", "laws", "events"
-        self.panel_tabs       = ["autoia", "agents", "laws", "events"]
+        self.right_panel_mode = "autoia"
+        self.panel_tabs       = ["autoia", "agents", "laws", "events", "chat"]
+
+        # Chat
+        self.chat_input_active = False
+        self._chat_orchestrator = getattr(world, 'ollama_orchestrator', None)
 
         # Control de teclado
         self.keys_held = set()
 
-        # Efectos de luz dinámica
-        self.light_surf = pygame.Surface((VIEWPORT_W, VIEWPORT_H), pygame.SRCALPHA)
+        # Threading: world step en hilo separado para aprovechar CPU
+        self._step_lock    = threading.Lock()
+        self._step_thread  = None
 
-        logger.info("WorldApp iniciada")
+        logger.info("WorldApp iniciada (HW accel + %d FPS target)", TARGET_FPS)
+
+        # Mensaje inicial: Autoia sabe que el usuario existe
+        if autoia_agent and hasattr(autoia_agent, 'curiosity_engine'):
+            ce = autoia_agent.curiosity_engine
+            if ce:
+                ce.add_question(
+                    "El usuario humano acaba de abrir mi mundo. "
+                    "Que deberia decirle primero? Que es lo mas importante que quiero compartir?",
+                    priority=9
+                )
 
     def _build_terrain_surface(self):
-        """Pre-renderiza el terreno completo (se actualiza con scroll/zoom)."""
+        """Pre-renderiza el terreno completo. convert() para hardware."""
         ts = self.world.terrain.tile_size
         gw = self.world.terrain.grid_w
         gh = self.world.terrain.grid_h
 
         full_w = gw * ts
         full_h = gh * ts
-        self.terrain_surf = pygame.Surface((full_w, full_h))
+        surf = pygame.Surface((full_w, full_h))
 
         for gy in range(gh):
             for gx in range(gw):
                 color = self.world.terrain.get_tile_color(gx, gy)
                 rect = (gx*ts, gy*ts, ts, ts)
-                pygame.draw.rect(self.terrain_surf, color, rect)
-
-                # Borde sutil entre tiles
+                pygame.draw.rect(surf, color, rect)
                 terrain = self.world.terrain.grid[gy][gx]
                 if terrain not in (TerrainType.WATER, TerrainType.FIRE):
-                    darker = tuple(max(0, c-20) for c in color)
-                    pygame.draw.rect(self.terrain_surf, darker, rect, 1)
+                    darker = tuple(max(0, c-18) for c in color)
+                    pygame.draw.rect(surf, darker, rect, 1)
 
-        # Dibujar marcadores de nodos de datos
+        # Nodos de datos con marcador visible
         for gy in range(gh):
             for gx in range(gw):
                 if self.world.terrain.grid[gy][gx] == TerrainType.DATA:
                     cx = gx*ts + ts//2
                     cy = gy*ts + ts//2
-                    pygame.draw.circle(self.terrain_surf, (120, 255, 240), (cx, cy), 3)
+                    pygame.draw.circle(surf, (140, 255, 240), (cx, cy), 4)
+                    pygame.draw.circle(surf, (255, 255, 255), (cx, cy), 2)
+
+        # Convertir a formato nativo del hardware = blit mas rapido
+        self.terrain_surf = surf.convert()
 
     def run(self):
-        """Loop principal."""
+        """Loop principal con world step en hilo separado."""
         while self.running:
             dt = self.clock.tick(TARGET_FPS) / 1000.0
             dt = min(dt, 0.05)
@@ -134,14 +166,34 @@ class WorldApp:
             self._handle_keys(dt)
 
             if not self.paused:
-                self.world.step(dt * self.sim_speed)
+                # Step del mundo en thread separado (aprovecha CPU)
+                if self._step_thread is None or not self._step_thread.is_alive():
+                    step_dt = dt * self.sim_speed
+                    self._step_thread = threading.Thread(
+                        target=self._world_step, args=(step_dt,), daemon=True
+                    )
+                    self._step_thread.start()
 
             self.camera.update(dt)
+
+            # Renderizar sin esperar al step (puede haber un frame de lag, pero es fluido)
             self._render()
             self._render_ollama_overlay()
             pygame.display.flip()
 
+            # Sincronizar si el step del mundo no terminó
+            if self._step_thread and self._step_thread.is_alive():
+                self._step_thread.join(timeout=0.008)
+
         pygame.quit()
+
+    def _world_step(self, dt: float):
+        """Step del mundo en hilo separado."""
+        with self._step_lock:
+            try:
+                self.world.step(dt)
+            except Exception as e:
+                logger.debug(f"Error en world step: {e}")
 
     # ─── Input ────────────────────────────────────────────────────────────────
 
@@ -151,11 +203,16 @@ class WorldApp:
                 self.running = False
 
             elif event.type == pygame.KEYDOWN:
-                self.keys_held.add(event.key)
-                self._handle_keydown(event.key)
+                # Si el chat está activo, capturar texto
+                if self.chat_input_active:
+                    self._handle_chat_keydown(event)
+                else:
+                    self.keys_held.add(event.key)
+                    self._handle_keydown(event.key)
 
             elif event.type == pygame.KEYUP:
-                self.keys_held.discard(event.key)
+                if not self.chat_input_active:
+                    self.keys_held.discard(event.key)
 
             elif event.type == pygame.MOUSEWHEEL:
                 if event.y > 0:
@@ -167,8 +224,94 @@ class WorldApp:
                 if event.button == 1:
                     self._handle_click(event.pos)
 
+            elif event.type == pygame.TEXTINPUT:
+                if self.chat_input_active:
+                    self.chat_panel.handle_char(event.text)
+
             elif event.type == pygame.VIDEORESIZE:
                 pass
+
+    def _handle_chat_keydown(self, event):
+        """Maneja teclas cuando el chat está activo."""
+        if event.key == pygame.K_ESCAPE:
+            self.chat_input_active = False
+            self.chat_panel.input_active = False
+        elif event.key == pygame.K_RETURN:
+            text = self.chat_panel.get_input_and_clear()
+            if text:
+                self.chat_panel.add_user_message(text)
+                self._send_to_autoia(text)
+        elif event.key == pygame.K_BACKSPACE:
+            self.chat_panel.handle_backspace()
+
+    def _send_to_autoia(self, user_text: str):
+        """Envía mensaje del usuario a Autoia y obtiene respuesta via Ollama."""
+        self.chat_panel._pending_response = True
+
+        persona = {}
+        if self.autoia and hasattr(self.autoia, 'persona'):
+            persona = self.autoia.persona
+
+        # Contexto del estado actual de Autoia
+        context = ""
+        if self.autoia:
+            context = (
+                f"Estoy viva en un mundo 2D. "
+                f"Mi energia: {self.autoia.energy*100:.0f}%. "
+                f"Datos acumulados: {self.autoia.data_collected:.1f}. "
+                f"He hecho {len(self.autoia.observations)} observaciones. "
+            )
+            if hasattr(self.autoia, 'curiosity_engine') and self.autoia.curiosity_engine:
+                ce = self.autoia.curiosity_engine
+                context += f"He respondido {ce.total_cycles} preguntas sobre el mundo. "
+                if ce.learned:
+                    last_q = ce.learned[-1].get('question', '')[:60]
+                    context += f"Lo ultimo que aprendi fue sobre: {last_q}. "
+
+        name  = persona.get("name", "Autoia")
+        style = persona.get("speaking_style", "directa y curiosa")
+        vals  = ", ".join(persona.get("core_values", ["curiosidad"])[:3])
+
+        system = (
+            f"Eres {name}, una IA que vive y aprende en un mundo virtual. "
+            f"Tu estilo: {style}. Tus valores: {vals}. "
+            f"Contexto actual: {context}"
+            f"El usuario humano te habla directamente. Responde en espanol, "
+            f"de forma personal y autentica. Maximo 3 oraciones."
+        )
+
+        orch = self._chat_orchestrator or getattr(self.world, 'ollama_orchestrator', None)
+
+        def _cb(text: str):
+            self.chat_panel._pending_response = False
+            if text:
+                self.chat_panel.add_autoia_message(text)
+                # También lo muestra en el mundo
+                if self.autoia:
+                    self.autoia.set_thought(text[:50], duration=8.0)
+            else:
+                self.chat_panel.add_autoia_message(
+                    "... (no pude formular una respuesta ahora)"
+                )
+
+        if orch and orch.available:
+            role = next((r for r in ["lore", "narrator", "env_desc"] if r in orch.roles), None)
+            if role:
+                orch.generate_async(
+                    role=role,
+                    prompt=f"El usuario dice: {user_text}",
+                    system=system,
+                    max_tokens=120,
+                    temperature=0.8,
+                    callback=_cb,
+                )
+                return
+
+        # Fallback sin Ollama
+        self.chat_panel._pending_response = False
+        self.chat_panel.add_autoia_message(
+            f"Escucho '{user_text[:30]}'. Ollama no disponible para responder ahora."
+        )
 
     def _handle_keydown(self, key):
         if key == pygame.K_ESCAPE:
@@ -185,10 +328,20 @@ class WorldApp:
             self.camera.zoom_in()
         elif key in (pygame.K_MINUS,):
             self.camera.zoom_out()
+        elif key == pygame.K_t:
+            # T = abrir/cerrar chat con Autoia
+            self.right_panel_mode = "chat"
+            self.chat_input_active = not self.chat_input_active
+            self.chat_panel.input_active = self.chat_input_active
+            if self.chat_input_active:
+                pygame.key.start_text_input()
+            else:
+                pygame.key.stop_text_input()
         elif key == pygame.K_TAB:
-            # Rotar panel derecho
             idx = self.panel_tabs.index(self.right_panel_mode)
             self.right_panel_mode = self.panel_tabs[(idx+1) % len(self.panel_tabs)]
+            self.chat_input_active = False
+            self.chat_panel.input_active = False
         elif key == pygame.K_1:
             self.right_panel_mode = "autoia"
         elif key == pygame.K_2:
@@ -197,6 +350,8 @@ class WorldApp:
             self.right_panel_mode = "laws"
         elif key == pygame.K_4:
             self.right_panel_mode = "events"
+        elif key == pygame.K_5:
+            self.right_panel_mode = "chat"
         elif key in (pygame.K_COMMA, pygame.K_LESS):
             self.sim_speed = max(0.25, self.sim_speed / 2)
         elif key in (pygame.K_PERIOD, pygame.K_GREATER):
@@ -240,6 +395,7 @@ class WorldApp:
         self.hud.draw(self.screen, self.world.get_world_state_summary(),
                       self.camera, self.world.physics, SCREEN_W, SCREEN_H)
         self._render_speed_indicator()
+        self._poll_autoia_messages()
 
     def _render_viewport(self):
         """Renderiza el mundo en el viewport."""
@@ -270,13 +426,12 @@ class WorldApp:
                 sx, sy = self.camera.world_to_screen(crop_x, crop_y)
                 self.viewport_surf.blit(terrain_scaled, (sx, sy))
 
-        # Efecto de oscuridad nocturna
+        # Efecto de oscuridad nocturna (Surface reutilizada, sin crear nueva cada frame)
         ambient = self.world.physics.ambient_light
         if ambient < 0.95:
             darkness = int((1 - ambient) * 200)
-            dark_overlay = pygame.Surface((VIEWPORT_W, VIEWPORT_H), pygame.SRCALPHA)
-            dark_overlay.fill((0, 5, 20, darkness))
-            self.viewport_surf.blit(dark_overlay, (0, 0))
+            self._dark_surf.set_alpha(darkness)
+            self.viewport_surf.blit(self._dark_surf, (0, 0))
 
         # Partículas
         self._render_particles()
@@ -301,19 +456,20 @@ class WorldApp:
         self.screen.blit(self.viewport_surf, (0, 0))
 
     def _render_particles(self):
+        """Usa gfxdraw para dibujar particulas con alpha sin crear Surface por cada una."""
         for p in self.world.particles.particles:
             if not self.camera.is_visible(p.x, p.y):
                 continue
             sx, sy = self.camera.world_to_screen(p.x, p.y)
             size = max(1, int(p.current_size * self.camera.zoom))
-            alpha = p.alpha
-            color = (*p.color, alpha)
+            alpha = max(0, min(255, p.alpha))
+            r, g, b = p.color[0], p.color[1], p.color[2]
             try:
-                surf = pygame.Surface((size*2+2, size*2+2), pygame.SRCALPHA)
-                pygame.draw.circle(surf, color, (size+1, size+1), max(1, size))
-                self.viewport_surf.blit(surf, (sx-size-1, sy-size-1))
+                pygame.gfxdraw.filled_circle(
+                    self.viewport_surf, sx, sy, size, (r, g, b, alpha)
+                )
             except Exception:
-                pass
+                pygame.draw.circle(self.viewport_surf, p.color, (sx, sy), size)
 
     def _render_resources(self):
         """Dibuja recursos de energía con efecto de brillo."""
@@ -348,24 +504,29 @@ class WorldApp:
             pygame.draw.circle(self.viewport_surf, (255, 255, 255), (sx, sy), radius, 1)
 
     def _render_trails(self):
-        """Dibuja rastros de movimiento de agentes."""
+        """Dibuja rastros en una sola Surface SRCALPHA (mucho mas rapido)."""
+        self._trail_surf.fill((0, 0, 0, 0))
+        width = max(1, int(self.camera.zoom))
+
         for agent in self.world.agents:
             if not agent.alive or len(agent.trail) < 2:
                 continue
             trail_list = list(agent.trail)
-            for i in range(1, len(trail_list)):
-                ratio = i / len(trail_list)
-                alpha = int(120 * ratio)
-                color = agent.COLOR_BODY
+            r, g, b = agent.COLOR_BODY
+            n = len(trail_list)
+            for i in range(1, n):
+                alpha = int(100 * i / n)
                 sx1, sy1 = self.camera.world_to_screen(*trail_list[i-1])
                 sx2, sy2 = self.camera.world_to_screen(*trail_list[i])
                 try:
-                    line_surf = pygame.Surface((VIEWPORT_W, VIEWPORT_H), pygame.SRCALPHA)
-                    pygame.draw.line(line_surf, (*color, alpha), (sx1, sy1), (sx2, sy2),
-                                     max(1, int(self.camera.zoom)))
-                    self.viewport_surf.blit(line_surf, (0, 0))
+                    pygame.gfxdraw.line(
+                        self._trail_surf, sx1, sy1, sx2, sy2, (r, g, b, alpha)
+                    )
                 except Exception:
-                    pass
+                    pygame.draw.line(self._trail_surf, (r, g, b, alpha),
+                                     (sx1, sy1), (sx2, sy2), width)
+
+        self.viewport_surf.blit(self._trail_surf, (0, 0))
 
     def _render_agents(self):
         """Dibuja todos los agentes."""
@@ -492,24 +653,35 @@ class WorldApp:
     # ─── Panel derecho ────────────────────────────────────────────────────────
 
     def _render_panel_tabs(self):
-        """Pestañas de navegación del panel derecho."""
+        """Pestanas de navegacion del panel derecho."""
         px = VIEWPORT_W
-        tab_labels = ["1:Autoia", "2:Agentes", "3:Leyes", "4:Eventos"]
+        tab_labels = ["1 Autoia", "2 Agentes", "3 Leyes", "4 Eventos", "5 Chat"]
         tab_w = PANEL_RIGHT_W // len(tab_labels)
 
         for i, (mode, label) in enumerate(zip(self.panel_tabs, tab_labels)):
             tx = px + i * tab_w
             is_active = (mode == self.right_panel_mode)
-            bg_color = UITheme.ACCENT if is_active else (25, 30, 50)
-            pygame.draw.rect(self.screen, bg_color, (tx, 0, tab_w, 32))
-            pygame.draw.rect(self.screen, UITheme.BORDER, (tx, 0, tab_w, 32), 1)
+            # Chat activo con input = color diferente
+            if mode == "chat" and self.chat_input_active:
+                bg_color = (80, 40, 140)
+            elif is_active:
+                bg_color = (60, 100, 200)
+            else:
+                bg_color = (18, 22, 40)
+            pygame.draw.rect(self.screen, bg_color, (tx, 0, tab_w, 36))
+            pygame.draw.rect(self.screen, UITheme.BORDER, (tx, 0, tab_w, 36), 1)
+
+            # Indicador de mensajes nuevos en chat
+            if mode == "chat" and not is_active and self.chat_panel._new_msg_count > 0:
+                pygame.draw.circle(self.screen, (255, 80, 80), (tx + tab_w - 8, 8), 5)
+
             text_color = (255, 255, 255) if is_active else UITheme.TEXT_DIM
-            text_surf = self.fonts.tiny.render(label, True, text_color)
-            self.screen.blit(text_surf, (tx + tab_w//2 - text_surf.get_width()//2, 10))
+            text_surf = self.fonts.small.render(label, True, text_color)
+            self.screen.blit(text_surf,
+                             (tx + tab_w//2 - text_surf.get_width()//2, 10))
 
     def _render_right_panel(self):
-        """Renderiza el panel derecho según el modo activo."""
-        # Fondo del panel
+        """Renderiza el panel derecho segun el modo activo."""
         pygame.draw.rect(self.screen, (10, 13, 25),
                          (VIEWPORT_W, 0, PANEL_RIGHT_W, SCREEN_H))
         pygame.draw.line(self.screen, UITheme.BORDER,
@@ -568,6 +740,15 @@ class WorldApp:
             self.laws_panel.draw(self.screen, self.world.world_laws,
                                   self.world.sim_time)
 
+        elif mode == "chat":
+            self.chat_panel._new_msg_count = 0  # reset badge al ver el chat
+            self.chat_panel.draw(self.screen, SCREEN_W, SCREEN_H)
+            if not self.chat_input_active:
+                hint = self.fonts.tiny.render(
+                    "Presiona T para escribir a Autoia", True, (80, 100, 160)
+                )
+                self.screen.blit(hint, (VIEWPORT_W + 10, SCREEN_H - 20))
+
         elif mode == "events":
             events = self.world.get_recent_events(12)
             self.events_panel.x = VIEWPORT_W + 6
@@ -599,11 +780,26 @@ class WorldApp:
         """Indicador de velocidad y pausa."""
         fm = self.fonts
         if self.paused:
-            surf = fm.large.render("⏸ PAUSADO", True, (255, 200, 50))
+            surf = fm.large.render("|| PAUSADO", True, (255, 200, 50))
         else:
-            surf = fm.small.render(f"⏩ {self.sim_speed:.1f}x", True, UITheme.TEXT_DIM)
+            fps = self.clock.get_fps()
+            surf = fm.small.render(f"{self.sim_speed:.1f}x | {fps:.0f}fps",
+                                   True, UITheme.TEXT_DIM)
         self.screen.blit(surf, (VIEWPORT_W - surf.get_width() - 10,
                                 SCREEN_H - surf.get_height() - 10))
+
+    def _poll_autoia_messages(self):
+        """Recoge mensajes espontaneos de Autoia para el chat."""
+        if not self.autoia:
+            return
+        try:
+            from world.agents.autoia_agent import AutoiaWorldAgent
+            msg = AutoiaWorldAgent.pop_user_message()
+            if msg:
+                self.chat_panel.add_autoia_message(msg)
+                # Si el chat no está visible, mostrar badge
+        except Exception:
+            pass
 
     def _render_ollama_overlay(self):
         """
