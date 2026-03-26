@@ -138,6 +138,7 @@ class WorldApp:
 
             self.camera.update(dt)
             self._render()
+            self._render_ollama_overlay()
             pygame.display.flip()
 
         pygame.quit()
@@ -603,3 +604,85 @@ class WorldApp:
             surf = fm.small.render(f"⏩ {self.sim_speed:.1f}x", True, UITheme.TEXT_DIM)
         self.screen.blit(surf, (VIEWPORT_W - surf.get_width() - 10,
                                 SCREEN_H - surf.get_height() - 10))
+
+    def _render_ollama_overlay(self):
+        """
+        Overlay de los sistemas Ollama periféricos:
+        - Narración del mundo (parte inferior del viewport)
+        - Eventos activos (esquina superior del viewport)
+        - Indicador de estado Ollama (esquina del panel)
+        """
+        fm = self.fonts
+
+        # ── Narrador (barra inferior del viewport) ────────────────────────
+        narrator = self.world.narrator
+        if narrator and narrator.is_displaying:
+            text = narrator.current_text
+            alpha = narrator.display_alpha
+
+            # Fondo semitransparente
+            bar_h = 38
+            bar_y = VIEWPORT_H - bar_h - 5
+            bar_surf = pygame.Surface((VIEWPORT_W, bar_h), pygame.SRCALPHA)
+            bar_surf.fill((10, 5, 25, min(200, alpha)))
+            self.screen.blit(bar_surf, (0, bar_y))
+
+            # Indicador de fuente (Ollama o fallback)
+            src = "◈ Ollama" if getattr(narrator.history[-1] if narrator.history else None,
+                                        'from_ollama', False) else "· Narrador"
+            src_color = (80, 180, 255) if "Ollama" in src else UITheme.TEXT_DIM
+
+            src_surf = fm.tiny.render(src, True, src_color)
+            self.screen.blit(src_surf, (8, bar_y + 4))
+
+            # Texto de narración (con fade)
+            text_color = (220, 210, 255, alpha)
+            narr_surf = fm.normal.render(f'"{text}"', True, (220, 210, 255))
+            narr_surf.set_alpha(alpha)
+            tx = VIEWPORT_W // 2 - narr_surf.get_width() // 2
+            self.screen.blit(narr_surf, (tx, bar_y + 10))
+
+            # Barra de fade
+            ratio = narrator.current_timer / narrator.display_duration
+            bar_fill = int(VIEWPORT_W * ratio)
+            pygame.draw.rect(self.screen, (60, 40, 100),
+                             (0, bar_y + bar_h - 3, VIEWPORT_W, 3))
+            if bar_fill > 0:
+                pygame.draw.rect(self.screen, (120, 80, 200),
+                                 (0, bar_y + bar_h - 3, bar_fill, 3))
+
+        # ── Eventos Ollama activos (esquina superior izquierda del viewport) ──
+        ev_texts = self.world.ollama_events
+        if ev_texts:
+            ev_y = 38
+            for ev_text in ev_texts[:3]:
+                ev_surf = pygame.Surface((VIEWPORT_W - 20, 20), pygame.SRCALPHA)
+                ev_surf.fill((30, 10, 50, 160))
+                self.screen.blit(ev_surf, (8, ev_y))
+                draw_text(self.screen, ev_text[:80], fm.tiny,
+                          (200, 160, 255), 12, ev_y + 4)
+                ev_y += 22
+
+        # ── Indicador estado Ollama (panel derecho, parte baja) ──────────
+        orchestrator = self.world.ollama_orchestrator
+        if orchestrator:
+            ind_y = SCREEN_H - 80
+            ind_x = VIEWPORT_W + 8
+            if orchestrator.available:
+                n_roles = len(orchestrator.roles)
+                status_text = f"◈ Ollama: {n_roles} roles activos"
+                status_color = (80, 200, 120)
+            else:
+                status_text = "◈ Ollama: fallback"
+                status_color = (150, 100, 60)
+
+            draw_text(self.screen, status_text, fm.tiny, status_color, ind_x, ind_y)
+            ind_y += 13
+
+            # Mostrar modelos asignados brevemente
+            for role, assignment in list(orchestrator.roles.items())[:4]:
+                model = assignment.model.split(":")[0][:10]
+                calls = assignment.calls_made
+                line = f"  {role[:8]:8s}→{model} ({calls})"
+                draw_text(self.screen, line, fm.tiny, UITheme.TEXT_DIM, ind_x, ind_y)
+                ind_y += 11

@@ -70,6 +70,19 @@ class WorldSimulation:
         # Autoia reference (se inyecta desde fuera)
         self.autoia_agent = None
 
+        # ── Sistemas Ollama (periféricos) ─────────────────────────────────
+        # Se inyectan desde fuera con inject_ollama_systems()
+        self.ollama_orchestrator = None
+        self.narrator            = None
+        self.npc_mind_engine     = None
+        self.event_generator     = None
+        self.lore_generator      = None
+        self.ollama_events: List[str] = []    # Eventos activos de Ollama
+
+        # Cooldown para NPC mind (no pedir pensamiento en cada tick)
+        self._npc_mind_timer = 0.0
+        self._npc_mind_interval = 3.0   # Revisar cada 3s
+
         self._setup()
 
     def _setup(self):
@@ -131,6 +144,19 @@ class WorldSimulation:
         self.agents.append(autoia_agent)
         self.log_event("spawn", "Autoia ha entrado al mundo", autoia_agent.x, autoia_agent.y)
 
+    def inject_ollama_systems(self, orchestrator,
+                              narrator, npc_mind, event_gen, lore_gen):
+        """
+        Inyecta los sistemas Ollama en el mundo.
+        Llamar después de initialize_ollama() en world_main.py.
+        """
+        self.ollama_orchestrator = orchestrator
+        self.narrator            = narrator
+        self.npc_mind_engine     = npc_mind
+        self.event_generator     = event_gen
+        self.lore_generator      = lore_gen
+        logger.info("Sistemas Ollama inyectados en el mundo.")
+
     # ─── Ciclo principal ───────────────────────────────────────────────────────
 
     def step(self, dt: float):
@@ -168,6 +194,9 @@ class WorldSimulation:
         # 7. Autoia observa y aprende
         if self.autoia_agent and self.autoia_agent.alive:
             self._update_autoia_observations(dt)
+
+        # 8. Sistemas Ollama periféricos (nunca bloquean)
+        self._update_ollama_systems(dt, world_state)
 
     def _detect_events(self, dt: float):
         """Detecta eventos significativos y genera partículas."""
@@ -230,6 +259,52 @@ class WorldSimulation:
         parts.append("Es de día." if self.physics.is_day else "Es de noche.")
 
         return " ".join(parts)
+
+    def _update_ollama_systems(self, dt: float, world_state: Dict):
+        """
+        Actualiza todos los sistemas periféricos con Ollama.
+        Siempre asíncrono — nunca bloquea la simulación.
+        """
+        if not self.ollama_orchestrator:
+            return
+
+        extended_state = {
+            **world_state,
+            "recent_events": [e.description for e in list(self.events)[-3:]],
+        }
+
+        # 1. Narrador del mundo
+        if self.narrator:
+            self.narrator.update(dt, extended_state, self.agents)
+
+        # 2. Generador de eventos
+        if self.event_generator:
+            new_events = self.event_generator.update(dt, world_state)
+            self.ollama_events = self.event_generator.get_active_texts()
+
+        # 3. Lore generator (pasivo, muy raro)
+        if self.lore_generator:
+            self.lore_generator.update(dt)
+
+        # 4. NPC Mind: dar pensamiento a un NPC aleatorio cada intervalo
+        self._npc_mind_timer -= dt
+        if self._npc_mind_timer <= 0 and self.npc_mind_engine:
+            self._npc_mind_timer = self._npc_mind_interval
+            alive_npcs = [
+                a for a in self.agents
+                if a.alive and not getattr(a, 'is_autoia', False)
+            ]
+            if alive_npcs:
+                target = random.choice(alive_npcs)
+                def _set_thought(text, agent=target):
+                    if agent.alive:
+                        agent.set_thought(text, duration=5.0)
+                        self.log_event("thought",
+                                       f"{agent.AGENT_NAME}: {text}",
+                                       agent.x, agent.y)
+                self.npc_mind_engine.request_thought(
+                    target, world_state, _set_thought
+                )
 
     def log_event(self, event_type: str, description: str, x: float, y: float):
         self.events.append(WorldEvent(event_type, description, x, y))
