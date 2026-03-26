@@ -18,6 +18,12 @@ Separación clara de responsabilidades:
 
 import sys
 import os
+
+# Windows: forzar UTF-8 para evitar UnicodeEncodeError con caracteres especiales
+if sys.platform == "win32":
+    import io
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
 import logging
 import argparse
 from pathlib import Path
@@ -31,7 +37,7 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     handlers=[
         logging.StreamHandler(sys.stdout),
-        logging.FileHandler("logs/world.log", mode="a"),
+        logging.FileHandler("logs/world.log", mode="a", encoding="utf-8"),
     ],
 )
 logger = logging.getLogger("autoia.world_main")

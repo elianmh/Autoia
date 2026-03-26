@@ -144,7 +144,7 @@ class OllamaOrchestrator:
                     temperature=params["temperature"],
                     max_tokens=params["max_tokens"],
                 )
-                logger.info(f"  Rol '{role:12s}' → {chosen}")
+                logger.info(f"  Rol '{role:12s}' -> {chosen}")
             else:
                 logger.warning(f"  Rol '{role}' sin modelo asignado")
 
