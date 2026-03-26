@@ -48,11 +48,20 @@ class WorldApp:
     """
 
     def __init__(self, world: WorldSimulation, autoia_agent=None):
+        # DPI awareness en Windows (evita que el OS escale la ventana y descalce los clics)
+        if sys.platform == "win32":
+            try:
+                import ctypes
+                ctypes.windll.user32.SetProcessDPIAware()
+            except Exception:
+                pass
+
         pygame.init()
         pygame.display.set_caption("Autoia - Mundo de IAs con Leyes Fisicas")
 
-        # Aceleracion por hardware + doble buffer para maxima fluidez
-        flags = pygame.HWSURFACE | pygame.DOUBLEBUF | pygame.RESIZABLE
+        # pygame.SCALED: renderiza en resolucion logica y mapea los clics automaticamente
+        # Esto soluciona el desfase entre cursor y botones en Windows con DPI scaling
+        flags = pygame.SCALED | pygame.RESIZABLE
         self.screen = pygame.display.set_mode((SCREEN_W, SCREEN_H), flags)
         pygame.display.set_allow_screensaver(True)
 
