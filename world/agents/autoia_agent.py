@@ -13,6 +13,23 @@ from world.agents.base import BaseAgent
 from world.physics import TerrainType, TERRAIN_PROPS
 
 
+def _load_curiosity_engine(orchestrator=None, llm_system=None, persona=None):
+    """Carga el motor de curiosidad si está disponible."""
+    try:
+        from learning.curiosity import CuriosityEngine
+        engine = CuriosityEngine(
+            orchestrator=orchestrator,
+            llm_system=llm_system,
+            persona=persona or {},
+        )
+        # Cargar primeras 2 fases del curriculum de inmediato
+        engine.load_curriculum_phase("phase_1_fundamentals")
+        engine.load_curriculum_phase("phase_2_systems")
+        return engine
+    except Exception as e:
+        return None
+
+
 class AutoiaWorldAgent(BaseAgent):
     """
     El agente Autoia dentro del mundo.
@@ -35,7 +52,7 @@ class AutoiaWorldAgent(BaseAgent):
     MAX_MEMORY    = 100   # Autoia tiene más memoria
 
     def __init__(self, agent_id: int, x: float, y: float, terrain_grid,
-                 llm_system=None):
+                 llm_system=None, orchestrator=None, persona=None):
         super().__init__(agent_id, x, y, terrain_grid)
         self.is_autoia      = True
         self.llm_system     = llm_system
@@ -49,6 +66,17 @@ class AutoiaWorldAgent(BaseAgent):
         self.curiosity       = 1.0    # 0-1: cuánto desea explorar zonas nuevas
         self.knowledge_level = 0.0   # Acumulado de datos absorbidos
         self.current_goal    = "exploring"
+        self.persona         = persona or {}
+
+        # Motor de curiosidad (aprendizaje autónomo)
+        self.curiosity_engine = _load_curiosity_engine(
+            orchestrator=orchestrator,
+            llm_system=llm_system,
+            persona=persona,
+        )
+        if self.curiosity_engine:
+            self.curiosity_engine.on_learned = self._on_learned
+            self.curiosity_engine.on_new_thought = self.set_thought
 
         # Nodos de datos conocidos
         self.known_data_nodes: List = []
@@ -66,6 +94,10 @@ class AutoiaWorldAgent(BaseAgent):
         self.terrains_visited = set()
         self.agents_observed  = set()
         self.total_obs_chars  = 0
+
+        # Nombre de persona
+        name = self.persona.get("name", "Autoia")
+        self.AGENT_NAME = name
 
         self._discover_data_nodes()
 
@@ -96,7 +128,15 @@ class AutoiaWorldAgent(BaseAgent):
             if gen != self.llm_generation:
                 self.llm_generation = gen
                 self.radius = min(18, 13 + gen * 2)  # Crece visualmente
-                self.set_thought(f"¡He evolucionado! Generación {gen}", duration=5.0)
+                self.set_thought(f"Evolucioné! Generación {gen}", duration=5.0)
+
+        # Motor de curiosidad: tick cada frame
+        if self.curiosity_engine:
+            thought = self.curiosity_engine.tick(time.time())
+            if thought:
+                self.set_thought(thought[:60], duration=6.0)
+                # La observación del mundo también alimenta preguntas
+                self.knowledge_level += 0.01
 
         # Decidir objetivo según estado
         self._decide_goal(world_state, physics)
@@ -198,6 +238,10 @@ class AutoiaWorldAgent(BaseAgent):
 
         for a in visible:
             self.agents_observed.add(a.agent_id)
+            # Observar comportamiento de otro agente genera curiosidad
+            if random.random() < 0.01 and self.curiosity_engine:
+                obs = f"el agente {a.AGENT_NAME} hace {getattr(a, 'current_goal', 'algo')}"
+                self.curiosity_engine.add_observation_question(obs)
 
         # Moverse lentamente mientras observa
         self._wander(dt)
@@ -236,12 +280,23 @@ class AutoiaWorldAgent(BaseAgent):
 
     # ─── Aprendizaje ──────────────────────────────────────────────────────────
 
+    def _on_learned(self, question: str, answer: str):
+        """Callback cuando el motor de curiosidad aprende algo nuevo."""
+        self.knowledge_level += 0.5
+        entry = f"Aprendí: {question[:50]} -> {answer[:80]}"
+        self.observations.append(entry)
+        self.remember(entry[:60], importance=0.9)
+        self.total_obs_chars += len(answer)
+
     def add_observation(self, text: str):
         """Añade una observación al buffer de aprendizaje."""
         self.observations.append(text)
         self.pending_learn.append(text)
         self.total_obs_chars += len(text)
-        self.remember(f"Observé: {text[:50]}", importance=0.8)
+        self.remember(f"Observe: {text[:50]}", importance=0.8)
+        # Las observaciones del mundo generan preguntas curiosas
+        if self.curiosity_engine and random.random() < 0.3:
+            self.curiosity_engine.add_observation_question(text)
 
     def _trigger_learning(self):
         """Dispara un ciclo de aprendizaje con las observaciones acumuladas."""

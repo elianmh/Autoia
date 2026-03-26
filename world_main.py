@@ -101,6 +101,18 @@ def launch_world(seed: int = 42, with_llm: bool = False,
     from world.world_sim import WorldSimulation
     from world.agents.autoia_agent import AutoiaWorldAgent
 
+    # ── Cargar persona de Autoia ───────────────────────────────────────────
+    import json as _json
+    _persona = {}
+    _persona_path = Path(__file__).parent / "persona.json"
+    if _persona_path.exists():
+        try:
+            with open(_persona_path, encoding="utf-8") as _f:
+                _persona = _json.load(_f)
+            logger.info(f"Persona cargada: {_persona.get('name', 'Autoia')}")
+        except Exception as _e:
+            logger.warning(f"No se pudo cargar persona.json: {_e}")
+
     # ── Inicializar mundo ──────────────────────────────────────────────────
     logger.info(f"Creando mundo (seed={seed})...")
     world = WorldSimulation(seed=seed)
@@ -146,6 +158,8 @@ def launch_world(seed: int = 42, with_llm: bool = False,
         x=spawn_x, y=spawn_y,
         terrain_grid=world.terrain,
         llm_system=llm_system,
+        orchestrator=None,      # se inyecta luego de Ollama
+        persona=_persona,
     )
     world.add_autoia(autoia)
     logger.info(f"Autoia creada en ({spawn_x:.0f}, {spawn_y:.0f})")
@@ -153,10 +167,20 @@ def launch_world(seed: int = 42, with_llm: bool = False,
     # ── Sistemas Ollama periféricos (opcional, independiente del LLM) ──────
     if with_ollama:
         logger.info("Inicializando sistemas Ollama periféricos...")
-        initialize_ollama(world, ollama_config_path=ollama_config)
+        orchestrator = initialize_ollama(world, ollama_config_path=ollama_config)
     else:
-        # Aun sin Ollama, inyectar sistemas en modo fallback
-        initialize_ollama(world, ollama_config_path=None)
+        orchestrator = initialize_ollama(world, ollama_config_path=None)
+
+    # Inyectar Ollama en el motor de curiosidad de Autoia
+    if orchestrator and autoia.curiosity_engine:
+        autoia.curiosity_engine.orchestrator = orchestrator
+        # Con Ollama disponible, reducir cooldown del ciclo de curiosidad
+        if orchestrator.available:
+            autoia.curiosity_engine._cycle_cooldown = 8.0
+            # Cargar fases 3 y 4 del curriculum también
+            autoia.curiosity_engine.load_curriculum_phase("phase_3_mind")
+            autoia.curiosity_engine.load_curriculum_phase("phase_4_humanity")
+            logger.info(f"Motor de curiosidad activo: {len(autoia.curiosity_engine.question_queue)} preguntas en cola")
 
     if headless:
         logger.info("Modo headless: simulando sin ventana...")
