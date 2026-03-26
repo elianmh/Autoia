@@ -683,6 +683,6 @@ class WorldApp:
             for role, assignment in list(orchestrator.roles.items())[:4]:
                 model = assignment.model.split(":")[0][:10]
                 calls = assignment.calls_made
-                line = f"  {role[:8]:8s}→{model} ({calls})"
+                line = f"  {role[:8]:8s}->{model} ({calls})"
                 draw_text(self.screen, line, fm.tiny, UITheme.TEXT_DIM, ind_x, ind_y)
                 ind_y += 11

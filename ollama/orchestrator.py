@@ -126,7 +126,7 @@ class OllamaOrchestrator:
             return False
 
         model_names = [m.name for m in self.models]
-        logger.info(f"Ollama detectado — {len(model_names)} modelos: {model_names}")
+        logger.info(f"Ollama detectado - {len(model_names)} modelos: {model_names}")
 
         # Asignar modelos a roles
         for role, prefs in ROLE_MODEL_PREFERENCES.items():
@@ -183,7 +183,7 @@ class OllamaOrchestrator:
         if response.ok:
             assignment.last_output = response.text
             logger.debug(
-                f"[{role}] {assignment.model} → "
+                f"[{role}] {assignment.model} -> "
                 f"{len(response.text)} chars en {latency:.0f}ms"
             )
             return response.text
@@ -252,7 +252,7 @@ class OllamaOrchestrator:
         for role, assignment in self.roles.items():
             model_short = assignment.model.split(":")[0][:12]
             calls = assignment.calls_made
-            lines.append(f"  {role[:10]:10s} → {model_short} ({calls} calls)")
+            lines.append(f"  {role[:10]:10s} -> {model_short} ({calls} calls)")
         return lines
 
     # ─── Persistencia ──────────────────────────────────────────────────────
