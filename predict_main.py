@@ -2,17 +2,29 @@
 Autoia ABA Prediction System — Entry Point
 
 Uso:
-    python predict_main.py                      # dashboard grafico
-    python predict_main.py --domain sports      # prediccion por consola
+    python predict_main.py                           # dashboard grafico
+    python predict_main.py --domain sports           # prediccion por consola
     python predict_main.py --domain market --symbols BTC-USD,AAPL
-    python predict_main.py --demo               # modo demo con datos de ejemplo
-    python predict_main.py --api-key TU_API_KEY # con The Odds API
+    python predict_main.py --api-key TU_ODDS_API_KEY # con The Odds API
+    python predict_main.py --serve                   # API REST en puerto 8765
+    python predict_main.py --serve --port 9000       # puerto personalizado
+    python predict_main.py --no-gui --all-domains    # todos los dominios consola
 
 Dominios disponibles:
-    sports   — Prediccion de partidos deportivos
-    market   — Prediccion de mercados financieros
-    masses   — Prediccion de tendencias de masas
-    betting  — Analisis de valor en apuestas deportivas
+    sports   -- Prediccion de partidos deportivos
+    market   -- Prediccion de mercados financieros
+    masses   -- Prediccion de tendencias de masas
+    betting  -- Analisis de valor en apuestas deportivas
+
+API REST (con --serve):
+    GET  /status
+    GET  /predict?domain=sports&home=X&away=Y
+    GET  /predictions?n=10
+    POST /data        { source, domain, data_type, payload }
+    POST /mo          { domain, description, mo_type, strength }
+    POST /outcome     { subject, domain, outcome }
+    POST /sentiment   { texts: [...] }
+    POST /webhook/register { url, domains, secret }
 """
 
 import sys
@@ -189,6 +201,12 @@ def main():
                         help="Modo demo con datos de ejemplo")
     parser.add_argument("--all-domains", action="store_true",
                         help="Mostrar prediccion de todos los dominios por consola")
+    parser.add_argument("--serve", action="store_true",
+                        help="Iniciar API REST para integraciones externas")
+    parser.add_argument("--port", type=int, default=8765,
+                        help="Puerto de la API REST (default: 8765)")
+    parser.add_argument("--no-bus", action="store_true",
+                        help="Deshabilitar bus de integracion")
     args = parser.parse_args()
 
     print("""
@@ -211,6 +229,21 @@ def main():
         sports_sport=args.sport,
         betting_api_key=args.api_key,
     )
+
+    # Integration bus y API REST
+    bus = None
+    api = None
+    if not args.no_bus:
+        from integrations.bus import IntegrationBus
+        bus = IntegrationBus(engine=engine, poll_interval=60.0)
+
+    if args.serve or (not args.no_gui and not args.demo and not args.all_domains):
+        if bus is not None:
+            from integrations.api_server import APIServer
+            api = APIServer(bus=bus, engine=engine, port=args.port)
+            api.start(blocking=False)
+            if bus:
+                bus.start()
 
     # Modo consola
     if args.no_gui or args.demo or args.all_domains:
