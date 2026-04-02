@@ -21,11 +21,16 @@ import json
 import time
 import threading
 import logging
+import os
+import mimetypes
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
 from typing import Dict, List, Optional, Callable
 
 from .base_plugin import DataPoint, PredictionResult
+
+# Directorio de archivos web estaticos
+_WEB_DIR = os.path.join(os.path.dirname(__file__), "web")
 
 logger = logging.getLogger("autoia.integrations.api")
 
@@ -75,6 +80,23 @@ class ABARequestHandler(BaseHTTPRequestHandler):
 
         bus    = self.server.bus
         engine = self.server.engine
+
+        # ── Archivos estaticos /autoia/*.js ──────────────────────────
+        if path.startswith("/autoia/") or path in ("/autoia_client.js", "/widget.js"):
+            filename = os.path.basename(path)
+            filepath = os.path.join(_WEB_DIR, filename)
+            if os.path.isfile(filepath):
+                ctype = mimetypes.guess_type(filepath)[0] or "application/octet-stream"
+                with open(filepath, "rb") as f:
+                    body = f.read()
+                self.send_response(200)
+                self.send_header("Content-Type", ctype)
+                self.send_header("Content-Length", str(len(body)))
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.end_headers()
+                self.wfile.write(body)
+                return
+            return self._send_error(f"Archivo no encontrado: {filename}", 404)
 
         # ── GET /status ───────────────────────────────────────────────
         if path == "/status":

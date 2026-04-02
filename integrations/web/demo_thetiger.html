@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TheTigerBets × Autoia ABA</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: #080c14; color: #c8d0e8;
+      font-family: 'Segoe UI', Arial, sans-serif;
+      min-height: 100vh; padding: 24px;
+    }
+    h1 { font-size: 28px; font-weight: 800; margin-bottom: 4px; }
+    h1 span { color: #f0a500; }
+    .subtitle { color: #556; font-size: 14px; margin-bottom: 32px; }
+
+    .matches-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px,1fr)); gap: 16px; }
+
+    .match-card {
+      background: #0d1117; border: 1px solid #1e2a50; border-radius: 12px;
+      padding: 18px; cursor: pointer; transition: border-color 0.2s;
+    }
+    .match-card:hover { border-color: #4a90e2; }
+    .match-league { color: #556; font-size: 11px; text-transform: uppercase; margin-bottom: 8px; }
+    .match-teams { font-size: 16px; font-weight: 700; color: #e8eaf0; margin-bottom: 14px; }
+    .match-odds { display: flex; gap: 8px; }
+    .odd-btn {
+      flex: 1; background: #131820; border: 1px solid #2a3560; border-radius: 8px;
+      padding: 8px; text-align: center; cursor: pointer; transition: all 0.15s;
+    }
+    .odd-btn:hover { background: #1e2a50; border-color: #4a90e2; }
+    .odd-label { color: #556; font-size: 10px; margin-bottom: 3px; }
+    .odd-val { color: #f0a500; font-size: 16px; font-weight: 700; }
+    .analyze-btn {
+      margin-top: 12px; width: 100%; padding: 10px;
+      background: linear-gradient(135deg, #1a3a5a, #2a4a7a);
+      border: 1px solid #4a90e2; border-radius: 8px;
+      color: #4a90e2; font-size: 12px; font-weight: 700; cursor: pointer;
+    }
+    .analyze-btn:hover { background: linear-gradient(135deg, #2a4a7a, #3a5a9a); }
+
+    .news-section { margin-top: 40px; }
+    .news-section h2 { font-size: 18px; font-weight: 700; margin-bottom: 16px; }
+    .news-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px,1fr)); gap: 12px; }
+    .news-item {
+      background: #0d1117; border: 1px solid #1e2a50; border-radius: 10px; padding: 14px;
+    }
+    .news-tag { font-size: 10px; text-transform: uppercase; color: #4a90e2; margin-bottom: 6px; }
+    .news-text { color: #c8d0e8; font-size: 13px; line-height: 1.5; margin-bottom: 10px; }
+    .news-mo-btn {
+      background: none; border: 1px solid #2a3560; border-radius: 6px;
+      color: #7888aa; font-size: 11px; padding: 4px 10px; cursor: pointer;
+      transition: all 0.15s;
+    }
+    .news-mo-btn:hover { border-color: #f0c832; color: #f0c832; }
+    .news-mo-btn.sent { border-color: #3ddc84; color: #3ddc84; }
+
+    #status-bar {
+      position: fixed; top: 0; left: 0; right: 0;
+      background: #0d1117; border-bottom: 1px solid #1e2a50;
+      padding: 8px 20px; display: flex; align-items: center; gap: 12px;
+      font-size: 12px; z-index: 9990;
+    }
+    .status-dot { width: 8px; height: 8px; border-radius: 50%; background: #556; }
+    .status-dot.ok { background: #3ddc84; }
+    .status-dot.err { background: #e05252; animation: blink 1s infinite; }
+    @keyframes blink { 0%,100%{ opacity:1 } 50%{ opacity:0.3 } }
+
+    body { padding-top: 48px; }
+  </style>
+</head>
+<body>
+
+<!-- Status bar -->
+<div id="status-bar">
+  <div class="status-dot" id="status-dot"></div>
+  <span id="status-text" style="color:#556">Conectando con Autoia ABA...</span>
+  <span style="flex:1"></span>
+  <span style="color:#556">🐯 TheTigerBets × Autoia ABA</span>
+</div>
+
+<h1>The<span>Tiger</span>Bets</h1>
+<div class="subtitle">Motor de prediccion ABA — Analisis conductual en tiempo real</div>
+
+<!-- Partidos del dia -->
+<div class="matches-grid" id="matches"></div>
+
+<!-- Noticias / titulares -->
+<div class="news-section">
+  <h2>Noticias relevantes <span style="color:#556;font-size:13px;font-weight:400">— Enviar como MO al motor ABA</span></h2>
+  <div class="news-grid" id="news"></div>
+</div>
+
+<!-- ─── INTEGRACION AUTOIA — 2 lineas ─────────────────────────────────────── -->
+<script src="autoia_client.js"></script>
+<script src="widget.js"></script>
+<!-- ─────────────────────────────────────────────────────────────────────────── -->
+
+<script>
+// Datos de demo (en TheTigerBets real estos vendrían de tu backend)
+const MATCHES = [
+  { league: 'La Liga', home: 'Real Madrid', away: 'Barcelona',    h: 1.85, d: 3.60, a: 4.20 },
+  { league: 'La Liga', home: 'Atletico',    away: 'Sevilla',      h: 1.70, d: 3.50, a: 5.00 },
+  { league: 'Premier', home: 'Man City',    away: 'Liverpool',    h: 2.10, d: 3.40, a: 3.50 },
+  { league: 'Premier', home: 'Arsenal',     away: 'Chelsea',      h: 2.20, d: 3.30, a: 3.20 },
+  { league: 'Serie A', home: 'Inter',       away: 'Juventus',     h: 2.40, d: 3.10, a: 3.00 },
+  { league: 'Bundes',  home: 'Bayern',      away: 'Dortmund',     h: 1.60, d: 4.00, a: 5.50 },
+];
+
+const NEWS = [
+  { tag: 'Lesion',    text: 'Lewandowski baja 3 semanas por lesion muscular. Barcelona pierde a su goleador.',      mo: 'AO', team: 'Barcelona',  strength: 0.85 },
+  { tag: 'Regreso',   text: 'Vinicius Jr. se recupera antes de lo esperado. Podria jugar el Clasico.',              mo: 'EO', team: 'Real Madrid', strength: 0.75 },
+  { tag: 'Racha',     text: 'Real Madrid lleva 8 partidos sin perder en La Liga. Mejor momento de la temporada.',   mo: 'EO', team: 'Real Madrid', strength: 0.80 },
+  { tag: 'Crisis',    text: 'Barcelona con tensiones internas. Entrenador bajo presion tras 3 empates seguidos.',   mo: 'AO', team: 'Barcelona',  strength: 0.60 },
+  { tag: 'FOMO',      text: 'Apuestas en el Clasico baten records. La masa se vuelca masivamente en Real Madrid.', mo: 'EO', team: 'general',     strength: 0.70 },
+  { tag: 'Arbitraje', text: 'Arbitro del Clasico polémico. Barcelona dice que le perjudica historicamente.',        mo: 'AO', team: 'Barcelona',  strength: 0.40 },
+];
+
+// ── Inicializar Autoia Widget ────────────────────────────────────────────────
+const autoia = AutoiaWidget.init({
+  host:       'localhost',
+  port:        8765,
+  autoDetect:  true,   // detecta partidos en el DOM
+});
+
+const client = autoia.client;
+
+// ── Verificar conexion ───────────────────────────────────────────────────────
+async function checkStatus() {
+  try {
+    await client.status();
+    document.getElementById('status-dot').className = 'status-dot ok';
+    document.getElementById('status-text').textContent = 'Autoia ABA conectado — Motor activo';
+    document.getElementById('status-text').style.color = '#3ddc84';
+  } catch(e) {
+    document.getElementById('status-dot').className = 'status-dot err';
+    document.getElementById('status-text').textContent =
+      'Autoia offline — Ejecuta: python predict_main.py --serve';
+    document.getElementById('status-text').style.color = '#e05252';
+  }
+}
+checkStatus();
+
+// ── Renderizar partidos ──────────────────────────────────────────────────────
+const matchesEl = document.getElementById('matches');
+MATCHES.forEach(m => {
+  const card = document.createElement('div');
+  card.className = 'match-card';
+  card.innerHTML = `
+    <div class="match-league">${m.league}</div>
+    <div class="match-teams">${m.home} <span style="color:#556">vs</span> ${m.away}</div>
+    <div class="match-odds">
+      <div class="odd-btn">
+        <div class="odd-label">1 · ${m.home.split(' ')[0]}</div>
+        <div class="odd-val">${m.h}</div>
+      </div>
+      <div class="odd-btn">
+        <div class="odd-label">X · Empate</div>
+        <div class="odd-val">${m.d}</div>
+      </div>
+      <div class="odd-btn">
+        <div class="odd-label">2 · ${m.away.split(' ')[0]}</div>
+        <div class="odd-val">${m.a}</div>
+      </div>
+    </div>
+    <button class="analyze-btn" onclick="analyzeMatch('${m.home}','${m.away}',${m.h},${m.d},${m.a})">
+      🐯 Analizar con ABA
+    </button>
+  `;
+  matchesEl.appendChild(card);
+});
+
+// ── Renderizar noticias ──────────────────────────────────────────────────────
+const newsEl = document.getElementById('news');
+NEWS.forEach((n, i) => {
+  const item = document.createElement('div');
+  item.className = 'news-item';
+  item.innerHTML = `
+    <div class="news-tag">${n.tag}</div>
+    <div class="news-text">${n.text}</div>
+    <button class="news-mo-btn" id="news-btn-${i}"
+      onclick="sendMO(${i}, '${n.mo}', \`${n.text}\`, '${n.team}', ${n.strength})">
+      ${n.mo === 'EO' ? '▲ EO' : '▼ AO'} — Enviar al motor ABA
+    </button>
+  `;
+  newsEl.appendChild(item);
+});
+
+// ── Funciones de integracion ─────────────────────────────────────────────────
+async function analyzeMatch(home, away, h, d, a) {
+  // Llenar el input del widget y abrir
+  document.getElementById('autoia-input').value =
+    `${home} vs ${away} | ${h} / ${d} / ${a}`;
+  autoia.open_panel();
+  autoia.tab = 'pred';
+  autoia._renderTabs();
+  await autoia._analyzeInput();
+}
+
+async function sendMO(idx, moType, desc, team, strength) {
+  const btn = document.getElementById(`news-btn-${idx}`);
+  btn.textContent = '⟳ Enviando...';
+  try {
+    await client.sendMO({
+      moType, description: desc, domain: 'sports',
+      target: team, strength, durationH: 24
+    });
+    // Tambien analizar el texto para sentimiento
+    await client.analyzeSentiment([desc], 'sports');
+
+    btn.textContent = moType === 'EO' ? '▲ EO enviado ✓' : '▼ AO enviado ✓';
+    btn.className = 'news-mo-btn sent';
+  } catch(e) {
+    btn.textContent = '✕ Error — Autoia offline';
+  }
+}
+</script>
+
+</body>
+</html>
