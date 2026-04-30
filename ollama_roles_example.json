@@ -1,0 +1,12 @@
+{
+  "_comment": "Asignación manual de modelos Ollama por rol periférico.",
+  "_uso": "python world_main.py --with-ollama --ollama-config ollama_roles_example.json",
+  "_nota": "Si un modelo no está instalado, el orquestador busca el siguiente disponible.",
+
+  "narrator":  "llama3:8b",
+  "npc_mind":  "phi3:mini",
+  "event_gen": "mistral:7b",
+  "env_desc":  "gemma:2b",
+  "lore":      "llama3:8b",
+  "law_judge": "mistral:7b"
+}
