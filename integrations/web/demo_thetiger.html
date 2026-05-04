@@ -9,213 +9,388 @@
     body {
       background: #080c14; color: #c8d0e8;
       font-family: 'Segoe UI', Arial, sans-serif;
-      min-height: 100vh; padding: 24px;
+      min-height: 100vh;
     }
-    h1 { font-size: 28px; font-weight: 800; margin-bottom: 4px; }
-    h1 span { color: #f0a500; }
-    .subtitle { color: #556; font-size: 14px; margin-bottom: 32px; }
 
-    .matches-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px,1fr)); gap: 16px; }
+    /* ── Status bar ── */
+    #status-bar {
+      position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+      background: #0d1117; border-bottom: 1px solid #1e2a50;
+      padding: 8px 20px; display: flex; align-items: center; gap: 12px; font-size: 12px;
+    }
+    .status-dot { width: 8px; height: 8px; border-radius: 50%; background: #334; transition: background 0.3s; }
+    .status-dot.ok  { background: #3ddc84; }
+    .status-dot.err { background: #e05252; animation: blink 1s infinite; }
+    @keyframes blink { 0%,100%{ opacity:1 } 50%{ opacity:0.3 } }
+
+    /* ── Layout ── */
+    .page-wrap { display: flex; padding-top: 44px; min-height: 100vh; }
+    .main-col  { flex: 1; min-width: 0; padding: 24px 20px; }
+    .side-col  { width: 280px; padding: 16px; border-left: 1px solid #1e2a50; position: sticky; top: 44px; max-height: calc(100vh - 44px); overflow-y: auto; }
+    .side-col::-webkit-scrollbar { width: 4px; }
+    .side-col::-webkit-scrollbar-thumb { background: #2a3560; border-radius: 2px; }
+
+    h1 { font-size: 26px; font-weight: 800; margin-bottom: 4px; }
+    h1 span { color: #f0a500; }
+    .subtitle { color: #445; font-size: 13px; margin-bottom: 20px; }
+
+    /* ── Search ── */
+    .search-row { display: flex; gap: 10px; margin-bottom: 20px; }
+    .search-input {
+      flex: 1; background: #0d1117; border: 1px solid #2a3560; border-radius: 8px;
+      padding: 9px 14px; color: #c8d0e8; font-size: 13px; outline: none;
+    }
+    .search-input:focus { border-color: #4a90e2; }
+    .league-filter {
+      background: #0d1117; border: 1px solid #2a3560; border-radius: 8px;
+      color: #c8d0e8; font-size: 12px; padding: 0 10px; cursor: pointer; outline: none;
+    }
+
+    /* ── Matches ── */
+    .matches-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 14px; }
 
     .match-card {
       background: #0d1117; border: 1px solid #1e2a50; border-radius: 12px;
-      padding: 18px; cursor: pointer; transition: border-color 0.2s;
+      padding: 16px; transition: border-color 0.2s; position: relative;
     }
-    .match-card:hover { border-color: #4a90e2; }
-    .match-league { color: #556; font-size: 11px; text-transform: uppercase; margin-bottom: 8px; }
-    .match-teams { font-size: 16px; font-weight: 700; color: #e8eaf0; margin-bottom: 14px; }
-    .match-odds { display: flex; gap: 8px; }
+    .match-card:hover { border-color: #2a4070; }
+    .match-league { color: #445; font-size: 10px; text-transform: uppercase; letter-spacing: 0.6px; margin-bottom: 8px; }
+    .match-teams  { font-size: 15px; font-weight: 700; color: #e8eaf0; margin-bottom: 12px; }
+
+    /* Badge de confianza ABA en la tarjeta */
+    .aba-badge {
+      position: absolute; top: 12px; right: 12px;
+      padding: 3px 8px; border-radius: 20px; font-size: 10px; font-weight: 800;
+      display: none;
+    }
+    .aba-badge.ok   { background: rgba(61,220,132,0.15); color: #3ddc84; border: 1px solid rgba(61,220,132,0.3); }
+    .aba-badge.mid  { background: rgba(240,200,50,0.15);  color: #f0c832; border: 1px solid rgba(240,200,50,0.3); }
+    .aba-badge.low  { background: rgba(220,80,80,0.15);   color: #e05252; border: 1px solid rgba(220,80,80,0.3); }
+
+    .match-odds { display: flex; gap: 7px; }
     .odd-btn {
       flex: 1; background: #131820; border: 1px solid #2a3560; border-radius: 8px;
-      padding: 8px; text-align: center; cursor: pointer; transition: all 0.15s;
+      padding: 8px 4px; text-align: center; cursor: pointer; transition: all 0.15s;
     }
     .odd-btn:hover { background: #1e2a50; border-color: #4a90e2; }
-    .odd-label { color: #556; font-size: 10px; margin-bottom: 3px; }
-    .odd-val { color: #f0a500; font-size: 16px; font-weight: 700; }
+    .odd-label { color: #445; font-size: 10px; margin-bottom: 3px; }
+    .odd-val   { color: #f0a500; font-size: 15px; font-weight: 700; }
     .analyze-btn {
-      margin-top: 12px; width: 100%; padding: 10px;
+      margin-top: 10px; width: 100%; padding: 9px;
       background: linear-gradient(135deg, #1a3a5a, #2a4a7a);
       border: 1px solid #4a90e2; border-radius: 8px;
       color: #4a90e2; font-size: 12px; font-weight: 700; cursor: pointer;
     }
     .analyze-btn:hover { background: linear-gradient(135deg, #2a4a7a, #3a5a9a); }
-
-    .news-section { margin-top: 40px; }
-    .news-section h2 { font-size: 18px; font-weight: 700; margin-bottom: 16px; }
-    .news-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px,1fr)); gap: 12px; }
-    .news-item {
-      background: #0d1117; border: 1px solid #1e2a50; border-radius: 10px; padding: 14px;
+    .match-pred-row {
+      display: none; margin-top: 8px; padding: 7px 8px;
+      background: #0a0f1a; border-radius: 7px;
+      justify-content: space-between; align-items: center;
+      font-size: 11px; border: 1px solid #1a2040;
     }
-    .news-tag { font-size: 10px; text-transform: uppercase; color: #4a90e2; margin-bottom: 6px; }
-    .news-text { color: #c8d0e8; font-size: 13px; line-height: 1.5; margin-bottom: 10px; }
+    .match-pred-row.visible { display: flex; }
+    .match-pred-winner { font-weight: 700; }
+    .match-pred-conf   { color: #7888aa; }
+
+    /* ── News ── */
+    .section-title { font-size: 16px; font-weight: 700; margin: 28px 0 14px; }
+    .news-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(270px, 1fr)); gap: 11px; }
+    .news-item { background: #0d1117; border: 1px solid #1e2a50; border-radius: 10px; padding: 13px; }
+    .news-tag  { font-size: 10px; text-transform: uppercase; color: #4a90e2; margin-bottom: 5px; letter-spacing: 0.5px; }
+    .news-text { color: #c8d0e8; font-size: 12px; line-height: 1.5; margin-bottom: 9px; }
     .news-mo-btn {
       background: none; border: 1px solid #2a3560; border-radius: 6px;
-      color: #7888aa; font-size: 11px; padding: 4px 10px; cursor: pointer;
-      transition: all 0.15s;
+      color: #7888aa; font-size: 11px; padding: 4px 10px; cursor: pointer; transition: all 0.15s;
     }
     .news-mo-btn:hover { border-color: #f0c832; color: #f0c832; }
-    .news-mo-btn.sent { border-color: #3ddc84; color: #3ddc84; }
+    .news-mo-btn.sent  { border-color: #3ddc84; color: #3ddc84; pointer-events: none; }
 
-    #status-bar {
-      position: fixed; top: 0; left: 0; right: 0;
-      background: #0d1117; border-bottom: 1px solid #1e2a50;
-      padding: 8px 20px; display: flex; align-items: center; gap: 12px;
-      font-size: 12px; z-index: 9990;
+    /* ── Sidebar: MOs activos ── */
+    .side-title { color: #4a90e2; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.7px; margin-bottom: 12px; }
+    .mo-live-row { padding: 8px 0; border-bottom: 1px solid #131820; }
+    .mo-live-row:last-child { border-bottom: none; }
+    .mo-live-badge {
+      display: inline-block; font-size: 9px; font-weight: 800; padding: 2px 5px;
+      border-radius: 4px; margin-right: 5px;
     }
-    .status-dot { width: 8px; height: 8px; border-radius: 50%; background: #556; }
-    .status-dot.ok { background: #3ddc84; }
-    .status-dot.err { background: #e05252; animation: blink 1s infinite; }
-    @keyframes blink { 0%,100%{ opacity:1 } 50%{ opacity:0.3 } }
+    .mo-live-badge.EO { background: rgba(61,220,132,0.15); color: #3ddc84; }
+    .mo-live-badge.AO { background: rgba(220,80,80,0.15);  color: #e05252; }
+    .mo-live-desc    { color: #c8d0e8; font-size: 11px; line-height: 1.4; margin-bottom: 3px; }
+    .mo-live-meta    { color: #445; font-size: 10px; }
+    .mo-strength-bar { height: 3px; background: #1e2a50; border-radius: 2px; margin-top: 5px; overflow: hidden; }
+    .mo-strength-fill { height: 100%; border-radius: 2px; }
 
-    body { padding-top: 48px; }
+    .side-empty { color: #334; font-size: 11px; text-align: center; padding: 20px 0; }
+
+    .side-section { margin-bottom: 24px; }
+    .side-divider { border: none; border-top: 1px solid #1e2a50; margin: 16px 0; }
+
+    /* ── Accuracy mini ── */
+    .acc-row { display: flex; align-items: center; gap: 7px; margin-bottom: 5px; }
+    .acc-label { color: #7888aa; font-size: 10px; min-width: 50px; }
+    .acc-bar-wrap { flex: 1; height: 5px; background: #1e2a50; border-radius: 3px; overflow: hidden; }
+    .acc-bar { height: 100%; border-radius: 3px; }
+    .acc-pct { font-size: 10px; font-weight: 700; min-width: 28px; text-align: right; }
   </style>
 </head>
 <body>
 
-<!-- Status bar -->
 <div id="status-bar">
   <div class="status-dot" id="status-dot"></div>
-  <span id="status-text" style="color:#556">Conectando con Autoia ABA...</span>
+  <span id="status-text" style="color:#334">Conectando con Autoia ABA...</span>
   <span style="flex:1"></span>
-  <span style="color:#556">🐯 TheTigerBets × Autoia ABA</span>
+  <span style="color:#334;font-size:11px">🐯 TheTigerBets × Autoia ABA v2</span>
 </div>
 
-<h1>The<span>Tiger</span>Bets</h1>
-<div class="subtitle">Motor de prediccion ABA — Analisis conductual en tiempo real</div>
+<div class="page-wrap">
+  <!-- Main content -->
+  <div class="main-col">
+    <h1>The<span>Tiger</span>Bets</h1>
+    <div class="subtitle">Motor de prediccion ABA — Matching Law + MOs + Impulso Conductual</div>
 
-<!-- Partidos del dia -->
-<div class="matches-grid" id="matches"></div>
+    <!-- Busqueda y filtro -->
+    <div class="search-row">
+      <input class="search-input" id="search-input" placeholder="Buscar equipo o partido..." oninput="filterMatches()">
+      <select class="league-filter" id="league-filter" onchange="filterMatches()">
+        <option value="">Todas las ligas</option>
+        <option value="La Liga">La Liga</option>
+        <option value="Premier">Premier</option>
+        <option value="Serie A">Serie A</option>
+        <option value="Bundes">Bundesliga</option>
+      </select>
+    </div>
 
-<!-- Noticias / titulares -->
-<div class="news-section">
-  <h2>Noticias relevantes <span style="color:#556;font-size:13px;font-weight:400">— Enviar como MO al motor ABA</span></h2>
-  <div class="news-grid" id="news"></div>
+    <!-- Partidos -->
+    <div class="matches-grid" id="matches"></div>
+
+    <!-- Noticias -->
+    <div class="section-title">
+      Noticias <span style="color:#445;font-size:12px;font-weight:400">— Enviar como MO al motor ABA</span>
+    </div>
+    <div class="news-grid" id="news"></div>
+  </div>
+
+  <!-- Sidebar: MOs activos + precision -->
+  <div class="side-col">
+    <div class="side-section">
+      <div class="side-title">MOs Activos</div>
+      <div id="mo-live-list"><div class="side-empty">Sin MOs activos todavia</div></div>
+    </div>
+    <hr class="side-divider">
+    <div class="side-section">
+      <div class="side-title">Precision del Motor</div>
+      <div id="acc-live"></div>
+    </div>
+  </div>
 </div>
 
-<!-- ─── INTEGRACION AUTOIA — 2 lineas ─────────────────────────────────────── -->
+<!-- ─── INTEGRACION AUTOIA — 3 lineas ─────────────────────────────────── -->
 <script src="autoia_client.js"></script>
 <script src="widget.js"></script>
-<!-- ─────────────────────────────────────────────────────────────────────────── -->
+<!-- ──────────────────────────────────────────────────────────────────────── -->
 
 <script>
-// Datos de demo (en TheTigerBets real estos vendrían de tu backend)
 const MATCHES = [
-  { league: 'La Liga', home: 'Real Madrid', away: 'Barcelona',    h: 1.85, d: 3.60, a: 4.20 },
-  { league: 'La Liga', home: 'Atletico',    away: 'Sevilla',      h: 1.70, d: 3.50, a: 5.00 },
-  { league: 'Premier', home: 'Man City',    away: 'Liverpool',    h: 2.10, d: 3.40, a: 3.50 },
-  { league: 'Premier', home: 'Arsenal',     away: 'Chelsea',      h: 2.20, d: 3.30, a: 3.20 },
-  { league: 'Serie A', home: 'Inter',       away: 'Juventus',     h: 2.40, d: 3.10, a: 3.00 },
-  { league: 'Bundes',  home: 'Bayern',      away: 'Dortmund',     h: 1.60, d: 4.00, a: 5.50 },
+  { league:'La Liga', home:'Real Madrid',  away:'Barcelona',  h:1.85, d:3.60, a:4.20 },
+  { league:'La Liga', home:'Atletico',     away:'Sevilla',    h:1.70, d:3.50, a:5.00 },
+  { league:'Premier', home:'Man City',     away:'Liverpool',  h:2.10, d:3.40, a:3.50 },
+  { league:'Premier', home:'Arsenal',      away:'Chelsea',    h:2.20, d:3.30, a:3.20 },
+  { league:'Serie A', home:'Inter',        away:'Juventus',   h:2.40, d:3.10, a:3.00 },
+  { league:'Bundes',  home:'Bayern',       away:'Dortmund',   h:1.60, d:4.00, a:5.50 },
 ];
 
 const NEWS = [
-  { tag: 'Lesion',    text: 'Lewandowski baja 3 semanas por lesion muscular. Barcelona pierde a su goleador.',      mo: 'AO', team: 'Barcelona',  strength: 0.85 },
-  { tag: 'Regreso',   text: 'Vinicius Jr. se recupera antes de lo esperado. Podria jugar el Clasico.',              mo: 'EO', team: 'Real Madrid', strength: 0.75 },
-  { tag: 'Racha',     text: 'Real Madrid lleva 8 partidos sin perder en La Liga. Mejor momento de la temporada.',   mo: 'EO', team: 'Real Madrid', strength: 0.80 },
-  { tag: 'Crisis',    text: 'Barcelona con tensiones internas. Entrenador bajo presion tras 3 empates seguidos.',   mo: 'AO', team: 'Barcelona',  strength: 0.60 },
-  { tag: 'FOMO',      text: 'Apuestas en el Clasico baten records. La masa se vuelca masivamente en Real Madrid.', mo: 'EO', team: 'general',     strength: 0.70 },
-  { tag: 'Arbitraje', text: 'Arbitro del Clasico polémico. Barcelona dice que le perjudica historicamente.',        mo: 'AO', team: 'Barcelona',  strength: 0.40 },
+  { tag:'Lesion',    text:'Lewandowski baja 3 semanas por lesion muscular. Barcelona pierde a su goleador.', mo:'AO', team:'Barcelona',   s:0.85 },
+  { tag:'Regreso',   text:'Vinicius Jr. se recupera antes de lo esperado. Podria jugar el Clasico.',         mo:'EO', team:'Real Madrid',  s:0.75 },
+  { tag:'Racha',     text:'Real Madrid lleva 8 partidos sin perder en La Liga. Mejor momento de la temporada.', mo:'EO', team:'Real Madrid', s:0.80 },
+  { tag:'Crisis',    text:'Barcelona con tensiones internas. Entrenador bajo presion tras 3 empates.',       mo:'AO', team:'Barcelona',   s:0.60 },
+  { tag:'FOMO',      text:'Apuestas en el Clasico baten records. La masa se vuelca masivamente en Real Madrid.', mo:'EO', team:'general', s:0.70 },
+  { tag:'Arbitraje', text:'Arbitro polémico. Barcelona dice que le perjudica historicamente.',               mo:'AO', team:'Barcelona',   s:0.40 },
 ];
 
-// ── Inicializar Autoia Widget ────────────────────────────────────────────────
-const autoia = AutoiaWidget.init({
-  host:       'localhost',
-  port:        8765,
-  autoDetect:  true,   // detecta partidos en el DOM
-});
+// ── Inicializar widget ────────────────────────────────────────────────────
+const widget = AutoiaWidget.init({ host: 'localhost', port: 8765, autoDetect: true });
+const client = widget.client;
 
-const client = autoia.client;
-
-// ── Verificar conexion ───────────────────────────────────────────────────────
+// ── Status inicial ────────────────────────────────────────────────────────
 async function checkStatus() {
   try {
     await client.status();
-    document.getElementById('status-dot').className = 'status-dot ok';
-    document.getElementById('status-text').textContent = 'Autoia ABA conectado — Motor activo';
+    document.getElementById('status-dot').className  = 'status-dot ok';
+    document.getElementById('status-text').textContent = 'Autoia ABA activo — Analizando conducta de masa';
     document.getElementById('status-text').style.color = '#3ddc84';
+    loadMOsAndAccuracy();
+    loadMatchBadges();
   } catch(e) {
-    document.getElementById('status-dot').className = 'status-dot err';
-    document.getElementById('status-text').textContent =
-      'Autoia offline — Ejecuta: python predict_main.py --serve';
+    document.getElementById('status-dot').className  = 'status-dot err';
+    document.getElementById('status-text').textContent = 'Autoia offline — Ejecuta: python predict_main.py --serve';
     document.getElementById('status-text').style.color = '#e05252';
   }
 }
 checkStatus();
 
-// ── Renderizar partidos ──────────────────────────────────────────────────────
-const matchesEl = document.getElementById('matches');
-MATCHES.forEach(m => {
-  const card = document.createElement('div');
-  card.className = 'match-card';
-  card.innerHTML = `
-    <div class="match-league">${m.league}</div>
-    <div class="match-teams">${m.home} <span style="color:#556">vs</span> ${m.away}</div>
-    <div class="match-odds">
-      <div class="odd-btn">
-        <div class="odd-label">1 · ${m.home.split(' ')[0]}</div>
-        <div class="odd-val">${m.h}</div>
-      </div>
-      <div class="odd-btn">
-        <div class="odd-label">X · Empate</div>
-        <div class="odd-val">${m.d}</div>
-      </div>
-      <div class="odd-btn">
-        <div class="odd-label">2 · ${m.away.split(' ')[0]}</div>
-        <div class="odd-val">${m.a}</div>
-      </div>
-    </div>
-    <button class="analyze-btn" onclick="analyzeMatch('${m.home}','${m.away}',${m.h},${m.d},${m.a})">
-      🐯 Analizar con ABA
-    </button>
-  `;
-  matchesEl.appendChild(card);
-});
+// ── Cargar MOs activos y precision en sidebar ─────────────────────────────
+async function loadMOsAndAccuracy() {
+  // MOs activos
+  try {
+    const data = await client.getActiveMOs();
+    const list = document.getElementById('mo-live-list');
+    if (!data.mos || !data.mos.length) {
+      list.innerHTML = '<div class="side-empty">Sin MOs activos</div>';
+    } else {
+      list.innerHTML = data.mos.slice(0, 8).map(mo => {
+        const t   = mo.mo_type || mo.type || '?';
+        const s   = mo.strength || 0;
+        const rem = mo.remaining_h || 0;
+        const col = t === 'EO' ? '#3ddc84' : '#e05252';
+        return `
+          <div class="mo-live-row">
+            <div class="mo-live-desc">
+              <span class="mo-live-badge ${t}">${t}</span>${mo.description || mo.source || ''}
+            </div>
+            <div class="mo-live-meta">${mo.target || ''} · ${rem.toFixed(1)}h restantes</div>
+            <div class="mo-strength-bar">
+              <div class="mo-strength-fill" style="width:${(s*100).toFixed(0)}%;background:${col}"></div>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+  } catch(e) {}
 
-// ── Renderizar noticias ──────────────────────────────────────────────────────
-const newsEl = document.getElementById('news');
-NEWS.forEach((n, i) => {
-  const item = document.createElement('div');
-  item.className = 'news-item';
-  item.innerHTML = `
+  // Precision
+  try {
+    const acc = await client.accuracy();
+    const el  = document.getElementById('acc-live');
+    const domains = { Sports: acc.sports, Market: acc.market, Masses: acc.masses, Betting: acc.betting };
+    el.innerHTML = Object.entries(domains).map(([d, v]) => {
+      if (!v || !v.total) return `<div class="acc-row"><div class="acc-label">${d}</div><div style="color:#334;font-size:10px">Sin datos</div></div>`;
+      const a = v.accuracy || 0;
+      const c = a > 0.65 ? '#3ddc84' : a > 0.45 ? '#f0c832' : '#e05252';
+      return `
+        <div class="acc-row">
+          <div class="acc-label">${d}</div>
+          <div class="acc-bar-wrap"><div class="acc-bar" style="width:${(a*100).toFixed(0)}%;background:${c}"></div></div>
+          <div class="acc-pct" style="color:${c}">${(a*100).toFixed(0)}%</div>
+        </div>
+      `;
+    }).join('');
+  } catch(e) {
+    document.getElementById('acc-live').innerHTML = '<div style="color:#334;font-size:10px">Cargando...</div>';
+  }
+
+  // Recargar cada 30s
+  setTimeout(loadMOsAndAccuracy, 30000);
+}
+
+// ── Badges de confianza en tarjetas ──────────────────────────────────────
+async function loadMatchBadges() {
+  for (const m of MATCHES) {
+    try {
+      const pred = await client.predictSports(m.home, m.away);
+      const conf = pred.confidence || 0;
+      const badgeEl = document.getElementById(`badge-${m.home.replace(/\s/g,'')}`);
+      if (!badgeEl) continue;
+      const cls    = conf > 0.65 ? 'ok' : conf > 0.45 ? 'mid' : 'low';
+      const winner = pred.prediction || '';
+      badgeEl.className   = `aba-badge ${cls}`;
+      badgeEl.textContent = `${winner.split(' ').pop()} ${(conf*100).toFixed(0)}%`;
+      badgeEl.style.display = 'block';
+
+      // Mostrar mini-prediccion en la tarjeta
+      const predRow = document.getElementById(`pred-row-${m.home.replace(/\s/g,'')}`);
+      if (predRow) {
+        const cc = conf > 0.65 ? '#3ddc84' : conf > 0.45 ? '#f0c832' : '#e05252';
+        predRow.querySelector('.match-pred-winner').textContent = winner;
+        predRow.querySelector('.match-pred-winner').style.color = cc;
+        predRow.querySelector('.match-pred-conf').textContent   = `${(conf*100).toFixed(0)}% confianza ABA`;
+        predRow.classList.add('visible');
+      }
+    } catch(e) {}
+  }
+}
+
+// ── Renderizar partidos ───────────────────────────────────────────────────
+function renderMatches(filtered) {
+  const grid = document.getElementById('matches');
+  grid.innerHTML = '';
+  filtered.forEach(m => {
+    const id  = m.home.replace(/\s/g,'');
+    const div = document.createElement('div');
+    div.className    = 'match-card';
+    div.dataset.league = m.league;
+    div.dataset.text   = `${m.home} ${m.away} ${m.league}`.toLowerCase();
+    div.innerHTML = `
+      <div class="aba-badge" id="badge-${id}"></div>
+      <div class="match-league">${m.league}</div>
+      <div class="match-teams">${m.home} <span style="color:#334">vs</span> ${m.away}</div>
+      <div class="match-odds">
+        <div class="odd-btn"><div class="odd-label">1 · ${m.home.split(' ').pop()}</div><div class="odd-val">${m.h}</div></div>
+        <div class="odd-btn"><div class="odd-label">X · Empate</div><div class="odd-val">${m.d}</div></div>
+        <div class="odd-btn"><div class="odd-label">2 · ${m.away.split(' ').pop()}</div><div class="odd-val">${m.a}</div></div>
+      </div>
+      <div class="match-pred-row" id="pred-row-${id}">
+        <span style="color:#445;font-size:10px">ABA predice:</span>
+        <span class="match-pred-winner">—</span>
+        <span class="match-pred-conf">—</span>
+      </div>
+      <button class="analyze-btn" onclick="analyzeMatch('${m.home}','${m.away}',${m.h},${m.d},${m.a})">
+        🐯 Analizar con ABA
+      </button>
+    `;
+    grid.appendChild(div);
+  });
+}
+renderMatches(MATCHES);
+
+// ── Renderizar noticias ───────────────────────────────────────────────────
+document.getElementById('news').innerHTML = NEWS.map((n, i) => `
+  <div class="news-item">
     <div class="news-tag">${n.tag}</div>
     <div class="news-text">${n.text}</div>
     <button class="news-mo-btn" id="news-btn-${i}"
-      onclick="sendMO(${i}, '${n.mo}', \`${n.text}\`, '${n.team}', ${n.strength})">
+      onclick="sendMO(${i},'${n.mo}',\`${n.text}\`,'${n.team}',${n.s})">
       ${n.mo === 'EO' ? '▲ EO' : '▼ AO'} — Enviar al motor ABA
     </button>
-  `;
-  newsEl.appendChild(item);
-});
+  </div>
+`).join('');
 
-// ── Funciones de integracion ─────────────────────────────────────────────────
+// ── Busqueda y filtro ─────────────────────────────────────────────────────
+function filterMatches() {
+  const q  = document.getElementById('search-input').value.toLowerCase();
+  const lg = document.getElementById('league-filter').value;
+  const filtered = MATCHES.filter(m => {
+    const txt = `${m.home} ${m.away} ${m.league}`.toLowerCase();
+    return txt.includes(q) && (!lg || m.league === lg);
+  });
+  renderMatches(filtered);
+  // Re-aplicar badges ya cargados
+  setTimeout(loadMatchBadges, 100);
+}
+
+// ── Funciones de integracion ──────────────────────────────────────────────
 async function analyzeMatch(home, away, h, d, a) {
-  // Llenar el input del widget y abrir
-  document.getElementById('autoia-input').value =
-    `${home} vs ${away} | ${h} / ${d} / ${a}`;
-  autoia.open_panel();
-  autoia.tab = 'pred';
-  autoia._renderTabs();
-  await autoia._analyzeInput();
+  document.getElementById('autoia-input').value = `${home} vs ${away} | ${h} / ${d} / ${a}`;
+  widget.open_panel();
+  widget.tab = 'pred';
+  widget._renderTabs();
+  await widget._analyzeInput();
 }
 
 async function sendMO(idx, moType, desc, team, strength) {
   const btn = document.getElementById(`news-btn-${idx}`);
   btn.textContent = '⟳ Enviando...';
   try {
-    await client.sendMO({
-      moType, description: desc, domain: 'sports',
-      target: team, strength, durationH: 24
-    });
-    // Tambien analizar el texto para sentimiento
+    await client.sendMO({ moType, description: desc, domain: 'sports', target: team, strength, durationH: 24 });
     await client.analyzeSentiment([desc], 'sports');
-
-    btn.textContent = moType === 'EO' ? '▲ EO enviado ✓' : '▼ AO enviado ✓';
-    btn.className = 'news-mo-btn sent';
+    btn.textContent = `${moType === 'EO' ? '▲ EO' : '▼ AO'} enviado ✓`;
+    btn.classList.add('sent');
+    // Actualizar sidebar de MOs
+    setTimeout(loadMOsAndAccuracy, 800);
   } catch(e) {
-    btn.textContent = '✕ Error — Autoia offline';
+    btn.textContent = '✕ Autoia offline';
   }
 }
 </script>
-
 </body>
 </html>

@@ -121,6 +121,26 @@ class AutoiaClient {
     return this._get('/predictions', { n });
   }
 
+  /** Lista todos los equipos registrados con stats y MOs activos */
+  async getTeams() {
+    return this._get('/teams');
+  }
+
+  /**
+   * Analisis completo de un partido especifico.
+   * Retorna prediccion + stats detalladas de ambos equipos.
+   */
+  async getMatchAnalysis(home, away) {
+    const h = encodeURIComponent(home);
+    const a = encodeURIComponent(away);
+    return this._get(`/match/${h}/${a}`);
+  }
+
+  /** Lista todos los MOs activos con fuerza y tiempo restante */
+  async getActiveMOs() {
+    return this._get('/mo/active');
+  }
+
   // ── Envio de datos ───────────────────────────────────────────────────────
 
   /**
@@ -198,6 +218,17 @@ class AutoiaClient {
    */
   async recordOutcome(subject, domain, outcome) {
     return this._post('/outcome', { subject, domain, outcome });
+  }
+
+  /**
+   * Registra el resultado de un equipo (W/D/L) para actualizar momentum.
+   */
+  async sendTeamResult({ team, result, league = '', goalsFor = 0, goalsAgainst = 0 }) {
+    return this._post('/team/result', {
+      team, result, league,
+      goals_for:      goalsFor,
+      goals_against:  goalsAgainst,
+    });
   }
 
   /**

@@ -157,6 +157,84 @@ class ABARequestHandler(BaseHTTPRequestHandler):
                 return self._send_error("Motor ABA no disponible", 503)
             self._send_json(engine.get_global_accuracy())
 
+        # ── GET /teams ────────────────────────────────────────────────
+        # Lista todos los equipos registrados con stats y MOs activos
+        elif path == "/teams":
+            if not engine:
+                return self._send_error("Motor ABA no disponible", 503)
+            teams_out = {}
+            for name, team in engine.sports.teams.items():
+                active_mos = [mo.to_dict() for mo in engine.active_mos
+                              if mo.current_strength > 0.1
+                              and (mo.target == name or mo.target == "general")]
+                teams_out[name] = {
+                    "name":               team.name,
+                    "league":             team.league,
+                    "sport":              team.sport,
+                    "recent_results":     team.recent_results[-10:],
+                    "win_rate":           round(team.win_rate, 3),
+                    "reinforcement_rate": round(team.reinforcement_rate, 3),
+                    "mo_score":           round(team.mo_score, 3),
+                    "behavioral_momentum": round(team.behavioral_momentum, 3),
+                    "injuries":           team.injuries,
+                    "key_returns":        team.key_returns,
+                    "home_advantage":     team.home_advantage,
+                    "rest_days":          team.rest_days,
+                    "active_mos":         active_mos,
+                }
+            self._send_json({"teams": teams_out, "count": len(teams_out)})
+
+        # ── GET /match/{home}/{away} ───────────────────────────────────
+        # Analisis completo de un partido sin generar nueva prediccion
+        elif path.startswith("/match/"):
+            if not engine:
+                return self._send_error("Motor ABA no disponible", 503)
+            parts = path[len("/match/"):].split("/")
+            if len(parts) < 2:
+                return self._send_error("Formato: /match/HomeTeam/AwayTeam")
+            home = parts[0].replace("+", " ").replace("%20", " ")
+            away = parts[1].replace("+", " ").replace("%20", " ")
+            try:
+                pred    = engine.predict_sports_match(home, away)
+                home_t  = engine.sports.teams.get(home)
+                away_t  = engine.sports.teams.get(away)
+                result  = pred.to_dict()
+                result["home_stats"] = {
+                    "win_rate":    round(home_t.win_rate, 3) if home_t else 0,
+                    "momentum":    round(home_t.behavioral_momentum, 3) if home_t else 0,
+                    "mo_score":    round(home_t.mo_score, 3) if home_t else 0,
+                    "injuries":    home_t.injuries if home_t else [],
+                    "key_returns": home_t.key_returns if home_t else [],
+                } if home_t else {}
+                result["away_stats"] = {
+                    "win_rate":    round(away_t.win_rate, 3) if away_t else 0,
+                    "momentum":    round(away_t.behavioral_momentum, 3) if away_t else 0,
+                    "mo_score":    round(away_t.mo_score, 3) if away_t else 0,
+                    "injuries":    away_t.injuries if away_t else [],
+                    "key_returns": away_t.key_returns if away_t else [],
+                } if away_t else {}
+                self._send_json(result)
+            except Exception as e:
+                self._send_error(str(e), 500)
+
+        # ── GET /mo/active ────────────────────────────────────────────
+        # Lista todos los MOs activos con su fuerza y tiempo restante
+        elif path == "/mo/active":
+            if not engine:
+                return self._send_error("Motor ABA no disponible", 503)
+            active = []
+            now = time.time()
+            for mo in engine.active_mos:
+                if mo.current_strength > 0.05:
+                    remaining_h = mo.duration_h - (now - mo.timestamp) / 3600
+                    active.append({
+                        **mo.to_dict(),
+                        "remaining_h": round(max(0, remaining_h), 2),
+                        "elapsed_h":   round((now - mo.timestamp) / 3600, 2),
+                    })
+            active.sort(key=lambda x: x["strength"], reverse=True)
+            self._send_json({"mos": active, "count": len(active)})
+
         # ── GET /plugins ──────────────────────────────────────────────
         elif path == "/plugins":
             self._send_json({"plugins": bus.list_plugins() if bus else []})
@@ -281,7 +359,6 @@ class ABARequestHandler(BaseHTTPRequestHandler):
             if not url:
                 return self._send_error("Campo 'url' requerido")
             if bus:
-                # Crear plugin de webhook dinamicamente
                 from .plugins.webhook_plugin import WebhookPlugin
                 plugin = WebhookPlugin(url=url, domains=domains, secret=secret)
                 bus.register(plugin, auto_connect=True)
@@ -289,6 +366,34 @@ class ABARequestHandler(BaseHTTPRequestHandler):
                                   "url": url, "domains": domains})
             else:
                 self._send_error("Bus no disponible", 503)
+
+        # ── POST /team/result ─────────────────────────────────────────
+        # Registrar resultado de equipo rapidamente
+        elif path == "/team/result":
+            if not engine:
+                return self._send_error("Motor ABA no disponible", 503)
+            team   = body.get("team", "")
+            result = body.get("result", "")   # "W", "D", "L"
+            if not (team and result):
+                return self._send_error("Campos requeridos: team, result")
+            try:
+                league = body.get("league", "")
+                engine.sports.add_team(team, league)
+                engine.sports.update_team_result(
+                    team, result,
+                    body.get("goals_for", 0),
+                    body.get("goals_against", 0),
+                )
+                t = engine.sports.teams.get(team)
+                self._send_json({
+                    "ok":      True,
+                    "team":    team,
+                    "result":  result,
+                    "new_momentum": round(t.behavioral_momentum, 3) if t else 0,
+                    "win_rate":     round(t.win_rate, 3) if t else 0,
+                })
+            except Exception as e:
+                self._send_error(str(e), 500)
 
         else:
             self._send_error(f"Ruta no encontrada: {path}", 404)
